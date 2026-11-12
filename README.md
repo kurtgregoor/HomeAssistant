@@ -42,3 +42,21 @@ Diggit activeert Manual los van een programma door een uitgeschakeld slot 9 mee 
 Bij meerdere geconfigureerde batterijen selecteer je de batterij in het veld **Batterij**. In YAML heet dat veld `config_entry_id`.
 
 De UDP-berichten zijn lokaal getest met een nagebootste batterij. Of jouw firmware alle modi accepteert en de tijdsloten uitvoert, moet op je Home Assistant-installatie en batterij worden bevestigd.
+
+## Marstek op je dashboard
+
+De bedieningskaart werkt met de geïnstalleerde integratie vanaf versie 0.1.1.
+
+1. Open Studio Code Server en upload `dashboard/marstek-diggit-card.js` uit deze repository naar `/config/www/`. Maak `www` aan als die map ontbreekt. Herstart Home Assistant als je `www` net hebt aangemaakt.
+2. Ga naar **Instellingen → Dashboards → ⋮ → Bronnen**. Voeg `/local/marstek-diggit-card.js?v=1` toe als **JavaScript-module**. Zet zo nodig **Geavanceerde modus** aan in je gebruikersprofiel om **Bronnen** te zien.
+3. Open een bewerkbaar dashboard, kies **Bewerken → Kaart toevoegen → Handmatig** en plak:
+
+   ```yaml
+   type: custom:marstek-diggit-card
+   ```
+
+4. Sla op. De kaart haalt de actuele modus en het laadniveau op als de firmware dat veld levert. De knop **Vernieuwen** leest opnieuw uit.
+
+Voor een eigen plek in de zijbalk kun je onder **Instellingen → Dashboards** een dashboard met de naam **Marstek** maken en daar de kaart toevoegen. Bij meerdere batterijen geef je per kaart ook `config_entry_id` mee.
+
+De tijdslotvelden zijn een formulier om een programma te schrijven. Controleer bestaande programma’s in de Marstek-app voordat je een bezet slot overschrijft. De kaart gebruikt dezelfde acties als hierboven.
