@@ -1,0 +1,12 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect a Marstek battery",
+        "data": {"host": "IP address or host name", "port": "UDP port"}
+      }
+    },
+    "error": {"cannot_connect": "Could not read the battery mode. Check the address, port and local Open API."},
+    "abort": {"already_configured": "This battery is already configured."}
+  }
+}

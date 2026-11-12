@@ -1,0 +1,12 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Marstek-batterij verbinden",
+        "data": {"host": "IP-adres of hostnaam", "port": "UDP-poort"}
+      }
+    },
+    "error": {"cannot_connect": "Kan de batterijmodus niet lezen. Controleer het adres, de poort en de lokale Open API."},
+    "abort": {"already_configured": "Deze batterij is al geconfigureerd."}
+  }
+}

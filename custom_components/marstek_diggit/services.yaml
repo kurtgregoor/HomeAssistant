@@ -1,0 +1,110 @@
+get_status:
+  name: Lees batterijstatus
+  description: Lees de modus en andere gegevens die ES.GetMode teruggeeft.
+  fields: &target_field
+    config_entry_id:
+      name: Batterij
+      description: Bij één geconfigureerde batterij mag je dit veld leeg laten.
+      selector:
+        config_entry:
+          integration: marstek_diggit
+set_mode:
+  name: Wissel batterijmodus
+  description: Kies Auto, AI of UPS.
+  fields:
+    <<: *target_field
+    mode:
+      name: Modus
+      required: true
+      selector:
+        select:
+          options: ["Auto", "AI", "UPS"]
+set_passive:
+  name: Activeer Passive
+  description: Stel tijdelijk een laad- of ontlaadvermogen in.
+  fields:
+    <<: *target_field
+    power: &power_field
+      name: Vermogen
+      description: Negatief laadt en positief ontlaadt.
+      required: true
+      selector:
+        number:
+          min: -2500
+          max: 2500
+          unit_of_measurement: W
+          mode: box
+    duration_seconds:
+      name: Duur
+      required: true
+      selector:
+        number:
+          min: 60
+          max: 86400
+          unit_of_measurement: s
+          mode: box
+set_slot:
+  name: Programmeer tijdslot
+  description: Schrijf één tijdslot naar de batterij.
+  fields:
+    <<: *target_field
+    slot: &slot_field
+      name: Slot
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 9
+          mode: box
+    start_time:
+      name: Starttijd (UU:MM)
+      required: true
+      selector:
+        text:
+    end_time:
+      name: Eindtijd (UU:MM)
+      required: true
+      selector:
+        text:
+    days:
+      name: Weekdagen
+      description: Leeg gebruikt alle dagen.
+      selector:
+        select:
+          multiple: true
+          options:
+            - {value: mon, label: Maandag}
+            - {value: tue, label: Dinsdag}
+            - {value: wed, label: Woensdag}
+            - {value: thu, label: Donderdag}
+            - {value: fri, label: Vrijdag}
+            - {value: sat, label: Zaterdag}
+            - {value: sun, label: Zondag}
+    power: *power_field
+    action:
+      name: Laadactie
+      description: Leeg volgt het teken van het vermogen. Nul kiest dan Auto binnen het slot.
+      selector:
+        select:
+          options:
+            - {value: charge, label: Laden}
+            - {value: discharge, label: Ontladen}
+            - {value: auto, label: Auto binnen het slot}
+    enabled:
+      name: Slot ingeschakeld
+      default: true
+      selector:
+        boolean:
+    activate_manual: &activate_field
+      name: Manual actief laten
+      description: Laat de batterij na het schrijven in Manual staan.
+      default: false
+      selector:
+        boolean:
+disable_slot:
+  name: Schakel tijdslot uit
+  description: Vervang de slotgegevens op de batterij door een uitgeschakeld slot.
+  fields:
+    <<: *target_field
+    slot: *slot_field
+    activate_manual: *activate_field
