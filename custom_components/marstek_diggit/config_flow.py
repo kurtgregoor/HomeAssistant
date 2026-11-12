@@ -30,7 +30,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_HOST): vol.All(str, str.strip, vol.Length(min=1)),
+                vol.Required(CONF_HOST): vol.All(str, vol.Strip, vol.Length(min=1)),
                 vol.Required(CONF_PORT, default=30000): vol.All(int, vol.Range(min=1, max=65535)),
             }),
             errors=errors,

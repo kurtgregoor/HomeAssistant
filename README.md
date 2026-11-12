@@ -1,6 +1,6 @@
 # Marstek by Diggit voor Home Assistant
 
-Versie 0.1.0. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
+Versie 0.1.1. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
 
 ## Installatie
 
