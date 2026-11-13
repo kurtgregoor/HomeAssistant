@@ -1,5 +1,5 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.4";
+const CARD_VERSION = "0.1.5";
 const DAYS = [
   ["mon", "Ma"], ["tue", "Di"], ["wed", "Wo"], ["thu", "Do"],
   ["fri", "Vr"], ["sat", "Za"], ["sun", "Zo"],
@@ -294,5 +294,169 @@ if (!customElements.get("marstek-diggit-card")) {
     type: "marstek-diggit-card",
     name: "Marstek",
     description: "Batterijstatus, modi en tijdsloten",
+  });
+}
+
+const TARIFF_TYPES = [["peak", "Piek"], ["offpeak", "Dal"], ["super_offpeak", "Superdal"]];
+const TARIFF_PROFILES = [["weekday", "Maandag t/m vrijdag"], ["weekend", "Zaterdag en zondag"]];
+
+class MarstekTariffsCard extends HTMLElement {
+  static getStubConfig() {
+    return { type: "custom:marstek-diggit-tariffs-card" };
+  }
+
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; color: var(--primary-text-color); }
+        ha-card { padding: 20px; }
+        h2, p { margin: 0; }
+        h2 { font-size: 24px; }
+        .muted { color: var(--secondary-text-color); font-size: 13px; }
+        form { display: grid; gap: 18px; margin-top: 16px; }
+        fieldset { border: 1px solid var(--divider-color); border-radius: 12px; min-width: 0; margin: 0; padding: 12px; }
+        fieldset:disabled { opacity: .65; }
+        legend { font-weight: 600; padding: 0 5px; }
+        .fields { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 115px), 1fr)); }
+        label { display: grid; gap: 6px; min-width: 0; }
+        input, textarea, button {
+          box-sizing: border-box; font: inherit; color: inherit; padding: 8px;
+          background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px;
+        }
+        input, textarea { width: 100%; }
+        textarea { resize: vertical; }
+        button { min-height: 42px; cursor: pointer; font-weight: 600; }
+        button:disabled { opacity: .55; }
+        button[type="submit"] { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+        .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        output[data-error="true"] { color: var(--error-color, #b3261e); }
+      </style>
+      <ha-card>
+        <h2>Elektriciteitstarieven</h2>
+        <p class="muted">Kaartversie ${CARD_VERSION}</p>
+        <form>
+          <fieldset disabled>
+            <legend>Prijzen in €/kWh</legend>
+            <div class="fields">
+              ${TARIFF_TYPES.map(([kind, label]) => `
+                <label>${label}<input name="${kind}" inputmode="decimal" maxlength="20"
+                  pattern="[0-9]+([.,][0-9]{1,4})?" placeholder="0,2500" required></label>
+              `).join("")}
+            </div>
+          </fieldset>
+          <p class="muted">Gebruik UU:MM-UU:MM. Scheid tijdvakken met komma’s of nieuwe regels.
+            Een tijdvak over middernacht loopt door op de volgende dag. Lege uren krijgen geen tarief.</p>
+          ${TARIFF_PROFILES.map(([profile, label]) => `
+            <fieldset disabled>
+              <legend>${label}</legend>
+              <div class="fields">
+                ${TARIFF_TYPES.map(([kind, title]) => `
+                  <label>${title}<textarea name="${profile}_${kind}" rows="2"
+                    placeholder="07:00-11:00"></textarea></label>
+                `).join("")}
+              </div>
+            </fieldset>
+          `).join("")}
+          <div class="actions">
+            <button type="submit" disabled>Tarieven opslaan</button>
+            <button type="button" disabled>Opnieuw laden</button>
+          </div>
+          <output role="status" aria-live="polite"></output>
+        </form>
+      </ha-card>`;
+    this.form = this.shadowRoot.querySelector("form");
+    this.form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.save();
+    });
+    this.form.querySelector('button[type="button"]').addEventListener("click", () => {
+      if (!this.dirty || window.confirm("Je wijzigingen verwerpen en de opgeslagen tarieven laden?")) {
+        this.load();
+      }
+    });
+    this.form.addEventListener("input", () => { this.dirty = true; });
+  }
+
+  setConfig() {}
+
+  set hass(value) {
+    this._hass = value;
+    if (!this.started) {
+      this.started = true;
+      this.load();
+    }
+  }
+
+  getCardSize() {
+    return 6;
+  }
+
+  async request(service, data, returnResponse) {
+    const result = await this._hass.callWS({
+      type: "call_service", domain: DOMAIN, service,
+      service_data: data, return_response: returnResponse,
+    });
+    return result.response;
+  }
+
+  async load() {
+    await this.run(async () => {
+      const settings = await this.request("get_tariffs", {}, true);
+      for (const [kind] of TARIFF_TYPES) {
+        this.form.elements[kind].value = settings.prices[kind];
+        for (const [profile] of TARIFF_PROFILES) {
+          this.form.elements[`${profile}_${kind}`].value = settings.schedule[profile][kind].join("\n");
+        }
+      }
+      this.loaded = true;
+      this.dirty = false;
+      return "";
+    }, "Tarieven laden…");
+  }
+
+  async save() {
+    const prices = Object.fromEntries(TARIFF_TYPES.map(([kind]) => [kind, this.form.elements[kind].value]));
+    const schedule = Object.fromEntries(TARIFF_PROFILES.map(([profile]) => [
+      profile,
+      Object.fromEntries(TARIFF_TYPES.map(([kind]) => [
+        kind, this.form.elements[`${profile}_${kind}`].value.split(/[,\n]/).map((block) => block.trim()).filter(Boolean),
+      ])),
+    ]));
+    await this.run(async () => {
+      await this.request("set_tariffs", { prices, schedule }, false);
+      this.dirty = false;
+      return "Tarieven opgeslagen.";
+    }, "Tarieven opslaan…");
+  }
+
+  async run(action, pending) {
+    if (this.busy) return;
+    this.busy = true;
+    const controls = this.form.querySelectorAll("fieldset, button");
+    const status = this.form.querySelector("output");
+    for (const control of controls) control.disabled = true;
+    status.dataset.error = "false";
+    status.textContent = pending;
+    try {
+      status.textContent = await action();
+    } catch (error) {
+      status.dataset.error = "true";
+      status.textContent = error?.message || String(error);
+    } finally {
+      for (const control of controls) control.disabled = !this.loaded && control.type !== "button";
+      this.busy = false;
+    }
+  }
+}
+
+if (!customElements.get("marstek-diggit-tariffs-card")) {
+  customElements.define("marstek-diggit-tariffs-card", MarstekTariffsCard);
+  window.customCards = window.customCards || [];
+  window.customCards.push({
+    type: "marstek-diggit-tariffs-card",
+    name: "Marstek elektriciteitstarieven",
+    description: "Prijzen en tijdvakken voor piek, dal en superdal",
   });
 }

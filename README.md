@@ -1,6 +1,6 @@
 # Marstek by Diggit voor Home Assistant
 
-Versie 0.1.4. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
+Versie 0.1.5. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
 
 ## Installatie via HACS
 
@@ -73,3 +73,15 @@ Vanaf versie 0.1.3 levert de integratie zelf de JavaScript-kaart. De integratie 
 Voor een eigen plek in de zijbalk kun je onder **Instellingen → Dashboards** een dashboard met de naam **Marstek** maken en daar de kaart toevoegen. Bij meerdere batterijen geef je per kaart ook `config_entry_id` mee.
 
 De tijdslotvelden zijn een formulier om een programma te schrijven. Controleer bestaande programma’s in de Marstek-app voordat je een bezet slot overschrijft. De kaart gebruikt dezelfde acties als hierboven.
+
+## Kaart voor elektriciteitstarieven
+
+Werk **Marstek by Diggit** via HACS bij naar 0.1.5 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/marstek-diggit-card.js?v=0.1.5` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
+
+```yaml
+type: custom:marstek-diggit-tariffs-card
+```
+
+Vul de drie prijzen in €/kWh in en geef per tarief de tijdvakken voor werkdagen en het weekend op. Een voorbeeld met twee piekperiodes is `07:00-11:00, 17:00-22:00`. Een blok zoals `22:00-06:00` loopt door op de volgende kalenderdag, ook van vrijdag op zaterdag. Gebruik `24:00` als eindtijd als een blok precies om middernacht eindigt. Overlappende blokken worden geweigerd. Lege uren blijven zonder tarief.
+
+**Tarieven opslaan** bewaart één schema per Home Assistant-installatie. De kaart bewaart prijzen en tijden. Automatische batterijaansturing en kostenberekening zijn geen onderdeel van deze kaart.

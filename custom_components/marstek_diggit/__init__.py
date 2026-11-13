@@ -13,6 +13,8 @@ from homeassistant.helpers import config_validation as cv
 
 from .client import DAY_BITS, MODE_CONFIG, MarstekClient, MarstekError
 
+from .tariffs import register_tariff_actions
+
 DOMAIN = "marstek_diggit"
 TARGET = vol.Optional("config_entry_id")
 SLOT = vol.All(int, vol.Range(min=1, max=9))
@@ -73,6 +75,7 @@ def _slot_payload(data):
 
 
 async def async_setup(hass, config):
+    register_tariff_actions(hass, DOMAIN)
     await hass.http.async_register_static_paths([
         StaticPathConfig(
             "/marstek_diggit/marstek-diggit-card.js",

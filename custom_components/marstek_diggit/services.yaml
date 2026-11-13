@@ -112,3 +112,20 @@ disable_slot:
     <<: *target_field
     slot: *slot_field
     activate_manual: *activate_field
+get_tariffs:
+  name: Lees elektriciteitstarieven
+  description: Lees de opgeslagen prijzen en tijdvakken voor piek, dal en superdal.
+set_tariffs:
+  name: Bewaar elektriciteitstarieven
+  description: Bewaar de prijzen en tijdvakken voor piek, dal en superdal.
+  fields:
+    prices:
+      name: Prijzen
+      required: true
+      selector:
+        object:
+    schedule:
+      name: Tijdvakken
+      required: true
+      selector:
+        object:
