@@ -1,5 +1,5 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.6";
+const CARD_VERSION = "0.1.7";
 const DAYS = [
   ["mon", "Ma"], ["tue", "Di"], ["wed", "Wo"], ["thu", "Do"],
   ["fri", "Vr"], ["sat", "Za"], ["sun", "Zo"],
@@ -41,6 +41,7 @@ class MarstekDiggitCard extends HTMLElement {
         .meter > div { height: 100%; width: 0; background: var(--accent); transition: width .25s; }
         .body { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
         section + section { border-inline-start: 1px solid var(--line); }
+        #saved-slots { margin: 0; padding-inline-start: 18px; }
         form, fieldset { margin: 0; padding: 0; min-width: 0; border: 0; }
         form, .stack { display: grid; gap: 12px; }
         fieldset { display: grid; gap: 12px; }
@@ -110,8 +111,11 @@ class MarstekDiggitCard extends HTMLElement {
             </details>
           </section>
           <section class="stack">
-            <h3>Tijdslot programmeren</h3>
-            <p class="muted">De invoervelden tonen je nieuwe programma. Bestaande tijdsloten zijn zichtbaar in de Marstek-app.</p>
+            <h3>Programmatie</h3>
+            <ul id="saved-slots" class="muted"></ul>
+            <details id="schedule-editor">
+              <summary>Tijdslot wijzigen</summary>
+            <p class="muted">Tijdsloten die je in de Marstek-app instelt, zie je in die app.</p>
             <form id="schedule">
               <fieldset>
                 <div class="row">
@@ -142,6 +146,7 @@ class MarstekDiggitCard extends HTMLElement {
                 </div>
               </fieldset>
             </form>
+            </details>
           </section>
         </div>
         <p class="message" id="message" role="status" aria-live="polite"></p>
@@ -152,6 +157,10 @@ class MarstekDiggitCard extends HTMLElement {
       const automatic = schedule.elements.direction.value === "auto";
       schedule.elements.power.disabled = automatic;
       this.find("#slot-power").hidden = automatic;
+    });
+    schedule.elements.slot.addEventListener("change", () => this.fillSlot());
+    this.find("#schedule-editor").addEventListener("toggle", (event) => {
+      if (event.target.open) this.fillSlot();
     });
     schedule.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -257,6 +266,41 @@ class MarstekDiggitCard extends HTMLElement {
     }
   }
 
+  showSlots(slots) {
+    this.slots = slots;
+    const list = this.find("#saved-slots");
+    list.replaceChildren();
+    const items = Object.entries(slots);
+    if (!items.length) {
+      const item = document.createElement("li");
+      item.textContent = "Via deze integratie opgeslagen slots verschijnen hier.";
+      list.append(item);
+    }
+    for (const [number, slot] of items) {
+      const item = document.createElement("li");
+      const action = slot.action || (slot.power < 0 ? "charge" : slot.power > 0 ? "discharge" : "auto");
+      const label = { charge: "Laden", discharge: "Ontladen", auto: "Auto" }[action];
+      const power = action === "auto" ? "" : ` · ${Math.abs(slot.power)} W`;
+      const days = DAYS.filter(([key]) => slot.days?.includes(key)).map(([, day]) => day).join(", ");
+      item.textContent = slot.enabled
+        ? `Slot ${number} · ${slot.start_time}–${slot.end_time} · ${label}${power} · ${days}`
+        : `Slot ${number} · Uitgeschakeld`;
+      list.append(item);
+    }
+  }
+
+  fillSlot() {
+    const fields = this.find("#schedule").elements;
+    const slot = this.slots?.[fields.slot.value];
+    fields.start.value = slot?.start_time || "";
+    fields.end.value = slot?.end_time || "";
+    fields.direction.value = slot?.action || (slot?.power > 0 ? "discharge" : "charge");
+    if (slot?.action === undefined && slot?.power === 0) fields.direction.value = "auto";
+    fields.power.value = slot?.power == null ? "" : Math.abs(slot.power);
+    for (const day of fields.days) day.checked = slot?.days?.includes(day.value) ?? true;
+    fields.direction.dispatchEvent(new Event("change"));
+  }
+
   async run(service, data, success) {
     if (this.busy || !this._hass || !this.config) return;
     this.busy = true;
@@ -268,6 +312,16 @@ class MarstekDiggitCard extends HTMLElement {
       if (service) {
         await this.call(service, data);
         written = true;
+      }
+      const slotChanged = service === "set_slot" || service === "disable_slot";
+      if (slotChanged) this.find("#schedule-editor").open = false;
+      if (!service || slotChanged) {
+        try {
+          const { response } = await this.call("get_slots", {}, true);
+          this.showSlots(response.slots);
+        } catch (error) {
+          this.find("#saved-slots").textContent = `Slots ophalen mislukt. ${error?.message || error}`;
+        }
       }
       const result = await this.call("get_status", {}, true);
       this.showStatus(result.response);
@@ -315,6 +369,11 @@ class MarstekTariffsCard extends HTMLElement {
         h2, p { margin: 0; }
         h2 { font-size: 24px; }
         .muted { color: var(--secondary-text-color); font-size: 13px; }
+        .overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; margin: 14px 0; }
+        .overview article { border: 1px solid var(--divider-color); border-radius: 9px; padding: 8px 10px; }
+        .overview p { margin-top: 4px; overflow-wrap: anywhere; }
+        summary { cursor: pointer; font-weight: 600; }
+        output:not(:empty) { display: block; margin-top: 8px; }
         form { display: grid; gap: 18px; margin-top: 16px; }
         fieldset { border: 1px solid var(--divider-color); border-radius: 12px; min-width: 0; margin: 0; padding: 12px; }
         fieldset:disabled { opacity: .65; }
@@ -336,7 +395,10 @@ class MarstekTariffsCard extends HTMLElement {
       <ha-card>
         <h2>Elektriciteitstarieven</h2>
         <p class="muted">Kaartversie ${CARD_VERSION}</p>
-        <form>
+        <div id="tariff-summary" class="overview" aria-live="polite"></div>
+        <details>
+          <summary>Tarieven en tijdvakken wijzigen</summary>
+          <form>
           <fieldset disabled>
             <legend>Prijzen in €/kWh</legend>
             <div class="fields">
@@ -363,8 +425,9 @@ class MarstekTariffsCard extends HTMLElement {
             <button type="submit" disabled>Tarieven opslaan</button>
             <button type="button" disabled>Opnieuw laden</button>
           </div>
-          <output role="status" aria-live="polite"></output>
-        </form>
+          </form>
+        </details>
+        <output role="status" aria-live="polite"></output>
       </ha-card>`;
     this.form = this.shadowRoot.querySelector("form");
     this.form.addEventListener("submit", (event) => {
@@ -410,6 +473,7 @@ class MarstekTariffsCard extends HTMLElement {
           this.form.elements[`${profile}_${kind}`].value = settings.schedule[profile][kind].join("\n");
         }
       }
+      this.showTariffs(settings);
       this.loaded = true;
       this.dirty = false;
       return "";
@@ -426,16 +490,37 @@ class MarstekTariffsCard extends HTMLElement {
     ]));
     await this.run(async () => {
       await this.request("set_tariffs", { prices, schedule }, false);
+      this.showTariffs({ prices, schedule });
+      this.form.closest("details").open = false;
       this.dirty = false;
       return "Tarieven opgeslagen.";
     }, "Tarieven opslaan…");
+  }
+
+  showTariffs({ prices, schedule }) {
+    const summary = this.shadowRoot.querySelector("#tariff-summary");
+    summary.replaceChildren();
+    for (const [kind, label] of TARIFF_TYPES) {
+      const tile = document.createElement("article");
+      const heading = document.createElement("strong");
+      const amount = prices[kind].replace(".", ",");
+      heading.textContent = amount ? `${label} · € ${amount}/kWh` : label;
+      tile.append(heading);
+      for (const [profile, shortLabel] of [["weekday", "Ma–vr"], ["weekend", "Za–zo"]]) {
+        const line = document.createElement("p");
+        line.className = "muted";
+        line.textContent = `${shortLabel} · ${schedule[profile][kind].join(", ") || "—"}`;
+        tile.append(line);
+      }
+      summary.append(tile);
+    }
   }
 
   async run(action, pending) {
     if (this.busy) return;
     this.busy = true;
     const controls = this.form.querySelectorAll("fieldset, button");
-    const status = this.form.querySelector("output");
+    const status = this.shadowRoot.querySelector("output");
     for (const control of controls) control.disabled = true;
     status.dataset.error = "false";
     status.textContent = pending;

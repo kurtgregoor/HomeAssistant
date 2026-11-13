@@ -1,6 +1,6 @@
 # Marstek by Diggit voor Home Assistant
 
-Versie 0.1.6. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
+Versie 0.1.7. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
 
 ## Installatie via HACS
 
@@ -61,7 +61,7 @@ Voor Venus D en Venus E 3.0 is de ingebouwde Peak Shaving toegevoegd in controlf
 Vanaf versie 0.1.3 levert de integratie zelf de JavaScript-kaart. De integratie moet geladen zijn voordat de bron beschikbaar is.
 
 1. Ga naar **Instellingen → Dashboards → ⋮ → Bronnen**. Zet zo nodig **Geavanceerde modus** aan in je gebruikersprofiel.
-2. Voeg `/marstek_diggit/dashboard-0.1.6.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
+2. Voeg `/marstek_diggit/dashboard-0.1.7.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
 3. Open een bewerkbaar dashboard, kies **Bewerken → Kaart toevoegen → Handmatig** en plak:
 
    ```yaml
@@ -76,7 +76,7 @@ De tijdslotvelden zijn een formulier om een programma te schrijven. Controleer b
 
 ## Kaart voor elektriciteitstarieven
 
-Werk **Marstek by Diggit** via HACS bij naar 0.1.6 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.6.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
+Werk **Marstek by Diggit** via HACS bij naar 0.1.7 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.7.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
 
 ```yaml
 type: custom:marstek-diggit-tariffs-card
@@ -85,3 +85,5 @@ type: custom:marstek-diggit-tariffs-card
 Vul de drie prijzen in €/kWh in en geef per tarief de tijdvakken voor werkdagen en het weekend op. Een voorbeeld met twee piekperiodes is `07:00-11:00, 17:00-22:00`. Een blok zoals `22:00-06:00` loopt door op de volgende kalenderdag, ook van vrijdag op zaterdag. Gebruik `24:00` als eindtijd als een blok precies om middernacht eindigt. Overlappende blokken worden geweigerd. Lege uren blijven zonder tarief.
 
 **Tarieven opslaan** bewaart één schema per Home Assistant-installatie. De kaart bewaart prijzen en tijden. Automatische batterijaansturing en kostenberekening zijn geen onderdeel van deze kaart.
+
+Vanaf 0.1.7 tonen beide kaarten een compact overzicht. Open **Tarieven en tijdvakken wijzigen** of **Tijdslot wijzigen** om het formulier te tonen. De programmatie toont vanaf deze versie slotwijzigingen die via de integratie zijn bevestigd. Eerder ingestelde tijdsloten en wijzigingen via de Marstek-app raadpleeg je in de Marstek-app.

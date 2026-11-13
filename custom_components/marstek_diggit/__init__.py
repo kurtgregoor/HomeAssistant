@@ -1,5 +1,6 @@
 """Home Assistant actions for the Marstek battery."""
 
+from asyncio import Lock
 from pathlib import Path
 
 import voluptuous as vol
@@ -10,6 +11,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.storage import Store
 
 from .client import DAY_BITS, MODE_CONFIG, MarstekClient, MarstekError
 
@@ -23,6 +25,7 @@ TIME = vol.Match(r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
 ACTIVATE = vol.Optional("activate_manual", default=False)
 
 SCHEMAS = {
+    "get_slots": vol.Schema({TARGET: str}),
     "get_status": vol.Schema({TARGET: str}),
     "get_device_info": vol.Schema({TARGET: str}),
     "set_mode": vol.Schema({TARGET: str, vol.Required("mode"): vol.In(MODE_CONFIG)}),
@@ -76,10 +79,13 @@ def _slot_payload(data):
 
 async def async_setup(hass, config):
     register_tariff_actions(hass, DOMAIN)
+    slot_store = Store(hass, 1, f"{DOMAIN}.slots")
+    slot_lock = Lock()
     card_file = str(Path(__file__).with_name("marstek-diggit-card.js"))
     await hass.http.async_register_static_paths([
         StaticPathConfig("/marstek_diggit/marstek-diggit-card.js", card_file, False),
         StaticPathConfig("/marstek_diggit/dashboard-0.1.6.js", card_file, False),
+        StaticPathConfig("/marstek_diggit/dashboard-0.1.7.js", card_file, False),
     ])
 
     async def handle(call):
@@ -93,6 +99,9 @@ async def async_setup(hass, config):
 
         client = clients[entry_id]
         try:
+            if call.service == "get_slots":
+                async with slot_lock:
+                    return {"slots": (await slot_store.async_load() or {}).get(entry_id, {})}
             if call.service == "get_status":
                 return await client.get_status()
             if call.service == "get_device_info":
@@ -102,7 +111,20 @@ async def async_setup(hass, config):
             elif call.service == "set_passive":
                 await client.set_passive(data["power"], data["duration_seconds"])
             else:
-                await client.write_slot(_slot_payload(data), data["activate_manual"])
+                async with slot_lock:
+                    await client.write_slot(_slot_payload(data), data["activate_manual"])
+                    slots = await slot_store.async_load() or {}
+                    battery_slots = slots.setdefault(entry_id, {})
+                    slot = str(data["slot"])
+                    if call.service == "disable_slot":
+                        battery_slots.setdefault(slot, {})["enabled"] = False
+                    else:
+                        battery_slots[slot] = {
+                            key: data[key]
+                            for key in ("start_time", "end_time", "days", "power", "action", "enabled")
+                            if key in data
+                        }
+                    await slot_store.async_save(slots)
         except MarstekError as exc:
             raise HomeAssistantError(str(exc)) from exc
 
@@ -112,7 +134,7 @@ async def async_setup(hass, config):
             DOMAIN, action, handle, schema=schema,
             supports_response=(
                 SupportsResponse.ONLY
-                if action in {"get_status", "get_device_info"}
+                if action in {"get_status", "get_device_info", "get_slots"}
                 else SupportsResponse.NONE
             ),
         )
