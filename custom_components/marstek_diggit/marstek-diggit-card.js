@@ -1,11 +1,73 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.7";
+const CARD_VERSION = "0.1.8";
 const DAYS = [
   ["mon", "Ma"], ["tue", "Di"], ["wed", "Wo"], ["thu", "Do"],
   ["fri", "Vr"], ["sat", "Za"], ["sun", "Zo"],
 ];
 
-class MarstekDiggitCard extends HTMLElement {
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const ACTIVE_STYLE = `
+  :is(#saved-slots li, #tariff-summary article)[data-current="true"] {
+    border-color: var(--primary-color, #087e72);
+    background: color-mix(in srgb, var(--primary-color, #087e72) 15%, var(--card-background-color, white));
+  }
+`;
+
+function minutesOfDay(time) {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function includesMoment(start, end, minute, today, yesterday) {
+  const from = minutesOfDay(start);
+  const to = minutesOfDay(end);
+  return from <= to
+    ? today && minute >= from && minute < to
+    : (today && minute >= from) || (yesterday && minute < to);
+}
+
+class ScheduleCard extends HTMLElement {
+  connectedCallback() {
+    this.updateHighlight();
+    this.highlightTimer = setInterval(() => this.updateHighlight(), 1000);
+  }
+
+  disconnectedCallback() {
+    clearInterval(this.highlightTimer);
+  }
+
+  updateHighlight() {
+    const zone = this._hass?.config?.time_zone;
+    if (!zone || !this.highlightTiles?.length) return;
+    if (this.highlightZone !== zone) {
+      this.highlightClock = new Intl.DateTimeFormat("en-GB", {
+        timeZone: zone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+      });
+      this.highlightZone = zone;
+    }
+    const parts = Object.fromEntries(
+      this.highlightClock.formatToParts(new Date()).map(({ type, value }) => [type, value]),
+    );
+    const day = WEEKDAYS.indexOf(parts.weekday.toLowerCase());
+    const previousDay = (day + 6) % 7;
+    const minute = Number(parts.hour) * 60 + Number(parts.minute);
+    for (const { tile, badge, matches } of this.highlightTiles) {
+      const active = matches(day, previousDay, minute);
+      tile.dataset.current = String(active);
+      badge.hidden = !active;
+    }
+  }
+
+  highlightTile(tile, label, matches) {
+    const badge = document.createElement("strong");
+    badge.textContent = ` · ${label}`;
+    badge.hidden = true;
+    tile.append(badge);
+    this.highlightTiles.push({ tile, badge, matches });
+  }
+}
+
+class MarstekDiggitCard extends ScheduleCard {
   static getStubConfig() {
     return { type: "custom:marstek-diggit-card" };
   }
@@ -41,7 +103,9 @@ class MarstekDiggitCard extends HTMLElement {
         .meter > div { height: 100%; width: 0; background: var(--accent); transition: width .25s; }
         .body { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
         section + section { border-inline-start: 1px solid var(--line); }
-        #saved-slots { margin: 0; padding-inline-start: 18px; }
+        #saved-slots { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+        #saved-slots li { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+        ${ACTIVE_STYLE}
         form, fieldset { margin: 0; padding: 0; min-width: 0; border: 0; }
         form, .stack { display: grid; gap: 12px; }
         fieldset { display: grid; gap: 12px; }
@@ -219,6 +283,7 @@ class MarstekDiggitCard extends HTMLElement {
   }
 
   connectedCallback() {
+    super.connectedCallback();
     this.loadOnce();
   }
 
@@ -268,6 +333,7 @@ class MarstekDiggitCard extends HTMLElement {
 
   showSlots(slots) {
     this.slots = slots;
+    this.highlightTiles = [];
     const list = this.find("#saved-slots");
     list.replaceChildren();
     const items = Object.entries(slots);
@@ -286,7 +352,14 @@ class MarstekDiggitCard extends HTMLElement {
         ? `Slot ${number} · ${slot.start_time}–${slot.end_time} · ${label}${power} · ${days}`
         : `Slot ${number} · Uitgeschakeld`;
       list.append(item);
+      if (slot.enabled && slot.start_time && slot.end_time && slot.days) {
+        this.highlightTile(item, "Nu gepland", (day, previousDay, minute) =>
+          includesMoment(slot.start_time, slot.end_time, minute,
+            slot.days.includes(WEEKDAYS[day]), slot.days.includes(WEEKDAYS[previousDay])),
+        );
+      }
     }
+    this.updateHighlight();
   }
 
   fillSlot() {
@@ -320,6 +393,7 @@ class MarstekDiggitCard extends HTMLElement {
           const { response } = await this.call("get_slots", {}, true);
           this.showSlots(response.slots);
         } catch (error) {
+          this.highlightTiles = [];
           this.find("#saved-slots").textContent = `Slots ophalen mislukt. ${error?.message || error}`;
         }
       }
@@ -354,7 +428,7 @@ if (!customElements.get("marstek-diggit-card")) {
 const TARIFF_TYPES = [["peak", "Piek"], ["offpeak", "Dal"], ["super_offpeak", "Superdal"]];
 const TARIFF_PROFILES = [["weekday", "Maandag t/m vrijdag"], ["weekend", "Zaterdag en zondag"]];
 
-class MarstekTariffsCard extends HTMLElement {
+class MarstekTariffsCard extends ScheduleCard {
   static getStubConfig() {
     return { type: "custom:marstek-diggit-tariffs-card" };
   }
@@ -371,6 +445,7 @@ class MarstekTariffsCard extends HTMLElement {
         .muted { color: var(--secondary-text-color); font-size: 13px; }
         .overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; margin: 14px 0; }
         .overview article { border: 1px solid var(--divider-color); border-radius: 9px; padding: 8px 10px; }
+        ${ACTIVE_STYLE}
         .overview p { margin-top: 4px; overflow-wrap: anywhere; }
         summary { cursor: pointer; font-weight: 600; }
         output:not(:empty) { display: block; margin-top: 8px; }
@@ -500,6 +575,7 @@ class MarstekTariffsCard extends HTMLElement {
   showTariffs({ prices, schedule }) {
     const summary = this.shadowRoot.querySelector("#tariff-summary");
     summary.replaceChildren();
+    this.highlightTiles = [];
     for (const [kind, label] of TARIFF_TYPES) {
       const tile = document.createElement("article");
       const heading = document.createElement("strong");
@@ -513,7 +589,16 @@ class MarstekTariffsCard extends HTMLElement {
         tile.append(line);
       }
       summary.append(tile);
+      this.highlightTile(tile, "Nu", (day, previousDay, minute) =>
+        TARIFF_PROFILES.some(([profile]) => schedule[profile][kind].some((block) => {
+          const [start, end] = block.split("-").map((time) => time.trim());
+          return includesMoment(start, end, minute,
+            (day < 5) === (profile === "weekday"),
+            (previousDay < 5) === (profile === "weekday"));
+        })),
+      );
     }
+    this.updateHighlight();
   }
 
   async run(action, pending) {
