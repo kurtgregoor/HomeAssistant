@@ -1,5 +1,17 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.8";
+const CARD_VERSION = "0.1.9";
+const STATUS_REFRESH_MS = 30000;
+
+function formatBatteryActivity(value) {
+  if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) {
+    return "Onbekend";
+  }
+  const watts = Number(value);
+  if (!Number.isFinite(watts)) return "Onbekend";
+  if (watts === 0) return "In rust · 0 W";
+  const direction = watts < 0 ? "Laden" : "Ontladen";
+  return `${direction} · ${Math.abs(watts).toLocaleString("nl-BE")} W`;
+}
 const DAYS = [
   ["mon", "Ma"], ["tue", "Di"], ["wed", "Wo"], ["thu", "Do"],
   ["fri", "Vr"], ["sat", "Za"], ["sun", "Zo"],
@@ -148,6 +160,7 @@ class MarstekDiggitCard extends ScheduleCard {
           <div class="between">
             <div><p class="muted">Laadniveau</p><output class="soc" id="soc">—</output></div>
             <div><p class="muted">Huidige modus</p><output id="mode">—</output></div>
+            <div><p class="muted">Actueel vermogen</p><output id="activity">—</output></div>
           </div>
           <div class="meter" aria-hidden="true"><div id="fill"></div></div>
         </header>
@@ -285,6 +298,14 @@ class MarstekDiggitCard extends ScheduleCard {
   connectedCallback() {
     super.connectedCallback();
     this.loadOnce();
+    this.statusTimer = setInterval(() => {
+      if (!document.hidden) this.run(undefined, undefined, undefined, true);
+    }, STATUS_REFRESH_MS);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearInterval(this.statusTimer);
   }
 
   getCardSize() {
@@ -326,6 +347,7 @@ class MarstekDiggitCard extends ScheduleCard {
     this.find("#soc").textContent = valid ? `${Math.round(soc)}%` : "—";
     this.find("#fill").style.width = valid ? `${soc}%` : "0";
     this.find("#mode").textContent = status?.mode || "—";
+    this.find("#activity").textContent = formatBatteryActivity(status?.ongrid_power);
     for (const button of this.shadowRoot.querySelectorAll("[data-mode]")) {
       button.setAttribute("aria-pressed", String(button.dataset.mode === status?.mode));
     }
@@ -374,12 +396,12 @@ class MarstekDiggitCard extends ScheduleCard {
     fields.direction.dispatchEvent(new Event("change"));
   }
 
-  async run(service, data, success) {
+  async run(service, data, success, automatic = false) {
     if (this.busy || !this._hass || !this.config) return;
     this.busy = true;
     const controls = this.shadowRoot.querySelectorAll("button, fieldset");
     for (const control of controls) control.disabled = true;
-    this.message(service ? "Bezig met schrijven…" : "Batterijstatus ophalen…");
+    if (!automatic) this.message(service ? "Bezig met schrijven…" : "Batterijstatus ophalen…");
     let written = false;
     try {
       if (service) {
@@ -388,7 +410,7 @@ class MarstekDiggitCard extends ScheduleCard {
       }
       const slotChanged = service === "set_slot" || service === "disable_slot";
       if (slotChanged) this.find("#schedule-editor").open = false;
-      if (!service || slotChanged) {
+      if ((!service && !automatic) || slotChanged) {
         try {
           const { response } = await this.call("get_slots", {}, true);
           this.showSlots(response.slots);
@@ -399,8 +421,12 @@ class MarstekDiggitCard extends ScheduleCard {
       }
       const result = await this.call("get_status", {}, true);
       this.showStatus(result.response);
-      this.message(success || "");
+      if (!automatic) this.message(success || "");
     } catch (error) {
+      if (automatic) {
+        this.find("#activity").textContent = "Onbekend";
+        return;
+      }
       this.showStatus();
       this.message(
         written
