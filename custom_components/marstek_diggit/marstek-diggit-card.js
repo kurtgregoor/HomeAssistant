@@ -1,5 +1,5 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.5";
+const CARD_VERSION = "0.1.6";
 const DAYS = [
   ["mon", "Ma"], ["tue", "Di"], ["wed", "Wo"], ["thu", "Do"],
   ["fri", "Vr"], ["sat", "Za"], ["sun", "Zo"],

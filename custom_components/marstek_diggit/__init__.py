@@ -76,12 +76,10 @@ def _slot_payload(data):
 
 async def async_setup(hass, config):
     register_tariff_actions(hass, DOMAIN)
+    card_file = str(Path(__file__).with_name("marstek-diggit-card.js"))
     await hass.http.async_register_static_paths([
-        StaticPathConfig(
-            "/marstek_diggit/marstek-diggit-card.js",
-            str(Path(__file__).with_name("marstek-diggit-card.js")),
-            False,
-        ),
+        StaticPathConfig("/marstek_diggit/marstek-diggit-card.js", card_file, False),
+        StaticPathConfig("/marstek_diggit/dashboard-0.1.6.js", card_file, False),
     ])
 
     async def handle(call):
