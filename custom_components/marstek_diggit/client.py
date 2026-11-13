@@ -44,11 +44,11 @@ class MarstekClient:
         return response["result"]
 
     async def _request(self, method, **params):
-        request = {"id": next(self._ids), "method": method, "params": {"id": 0, **params}}
+        request = {"id": next(self._ids), "method": method, "params": params or {"id": 0}}
         return await asyncio.to_thread(self._roundtrip, request)
 
     async def _set(self, mode, **config):
-        result = await self._request("ES.SetMode", config={"mode": mode, **config})
+        result = await self._request("ES.SetMode", id=0, config={"mode": mode, **config})
         if not isinstance(result, dict) or result.get("set_result") in (False, "false", "0"):
             raise MarstekError(f"De batterij heeft {mode} niet bevestigd")
 
@@ -65,6 +65,17 @@ class MarstekClient:
     async def get_status(self):
         async with self.lock:
             return await self._get_status()
+
+    async def get_device_info(self):
+        async with self.lock:
+            result = await self._request("Marstek.GetDevice", ble_mac="0")
+        if not isinstance(result, dict) or not (result.get("device") or result.get("ver")):
+            raise MarstekError("De batterij heeft geen model of firmwareversie teruggegeven")
+        return {
+            label: result[key]
+            for key, label in (("device", "model"), ("ver", "firmware"))
+            if result.get(key) is not None
+        }
 
     async def set_mode(self, mode):
         async with self.lock:

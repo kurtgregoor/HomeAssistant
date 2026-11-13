@@ -18,6 +18,7 @@ ACTIVATE = vol.Optional("activate_manual", default=False)
 
 SCHEMAS = {
     "get_status": vol.Schema({TARGET: str}),
+    "get_device_info": vol.Schema({TARGET: str}),
     "set_mode": vol.Schema({TARGET: str, vol.Required("mode"): vol.In(MODE_CONFIG)}),
     "set_passive": vol.Schema({
         TARGET: str,
@@ -81,6 +82,8 @@ async def async_setup(hass, config):
         try:
             if call.service == "get_status":
                 return await client.get_status()
+            if call.service == "get_device_info":
+                return await client.get_device_info()
             if call.service == "set_mode":
                 await client.set_mode(data["mode"])
             elif call.service == "set_passive":
@@ -94,7 +97,11 @@ async def async_setup(hass, config):
     for action, schema in SCHEMAS.items():
         hass.services.async_register(
             DOMAIN, action, handle, schema=schema,
-            supports_response=SupportsResponse.ONLY if action == "get_status" else SupportsResponse.NONE,
+            supports_response=(
+                SupportsResponse.ONLY
+                if action in {"get_status", "get_device_info"}
+                else SupportsResponse.NONE
+            ),
         )
     return True
 

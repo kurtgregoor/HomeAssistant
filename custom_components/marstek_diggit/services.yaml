@@ -8,6 +8,10 @@ get_status:
       selector:
         config_entry:
           integration: marstek_diggit
+get_device_info:
+  name: Lees model en firmware
+  description: Lees de modelcode en firmwareversie van de batterij via de lokale Open API.
+  fields: *target_field
 set_mode:
   name: Wissel batterijmodus
   description: Kies Auto, AI of UPS.

@@ -1,6 +1,6 @@
 # Marstek by Diggit voor Home Assistant
 
-Versie 0.1.1. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
+Versie 0.1.2. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
 
 ## Installatie
 
@@ -42,6 +42,12 @@ Diggit activeert Manual los van een programma door een uitgeschakeld slot 9 mee 
 Bij meerdere geconfigureerde batterijen selecteer je de batterij in het veld **Batterij**. In YAML heet dat veld `config_entry_id`.
 
 De UDP-berichten zijn lokaal getest met een nagebootste batterij. Of jouw firmware alle modi accepteert en de tijdsloten uitvoert, moet op je Home Assistant-installatie en batterij worden bevestigd.
+
+## Firmware en Peak Shaving
+
+Vanaf 0.1.2 geeft de actie `marstek_diggit.get_device_info` de modelcode en firmwareversie terug via `Marstek.GetDevice`. Open **Instellingen → Tools → Acties → Lees model en firmware**. De actie leest alleen gegevens uit.
+
+Voor Venus D en Venus E 3.0 is de ingebouwde Peak Shaving toegevoegd in controlfirmware V150. Deze instelling heeft een eigen aan/uitstatus en een netlimiet in watt. Configureer ze in de Marstek-app. De [lokale UDP Open API](https://static-eu.marstekcloud.com/ems/resource/agreement/MarstekDeviceOpenApi.pdf) waarmee deze integratie werkt, documenteert geen commando voor die instelling. De [protocolanalyse voor Venus D en Venus E 3.0](https://github.com/iacavd/marstek-hm2mqtt/blob/main/docs/venus.md#28-configure-peak-shaving) beschrijft ze op het app-protocol. Een eventuele Home Assistant-regeling op basis van een netmeter en Passive is een eigen regeling.
 
 ## Marstek op je dashboard
 
