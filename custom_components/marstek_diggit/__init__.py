@@ -1,6 +1,10 @@
 """Home Assistant actions for the Marstek battery."""
 
+from pathlib import Path
+
 import voluptuous as vol
+
+from homeassistant.components.http import StaticPathConfig
 
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import SupportsResponse
@@ -69,6 +73,14 @@ def _slot_payload(data):
 
 
 async def async_setup(hass, config):
+    await hass.http.async_register_static_paths([
+        StaticPathConfig(
+            "/marstek_diggit/marstek-diggit-card.js",
+            str(Path(__file__).with_name("marstek-diggit-card.js")),
+            False,
+        ),
+    ])
+
     async def handle(call):
         clients = hass.data[DOMAIN]
         data = call.data

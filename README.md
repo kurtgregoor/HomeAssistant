@@ -1,8 +1,15 @@
 # Marstek by Diggit voor Home Assistant
 
-Versie 0.1.2. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
+Versie 0.1.3. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
 
-## Installatie
+## Installatie via HACS
+
+1. Open **HACS → ⋮ → Aangepaste repositories**.
+2. Voeg `https://github.com/kurtgregoor/HomeAssistant` toe met categorie **Integratie**.
+3. Open **Marstek by Diggit** in HACS, kies **Downloaden** en herstart Home Assistant. Als je de integratie eerder handmatig hebt geïnstalleerd, laat je bestaande batterijconfiguratie staan.
+4. Gebruik HACS voor toekomstige downloads en updates. Als je de kaart al gebruikte, wijzig dan de dashboardbron zoals hieronder beschreven.
+
+## Handmatige installatie
 
 1. Zet de lokale Open API aan in de Marstek-app. Noteer het IP-adres en de UDP-poort van de batterij. De standaardpoort is 30000.
 2. Kopieer de volledige map `custom_components/marstek_diggit` naar `/config/custom_components/` op je Home Assistant-installatie.
@@ -51,10 +58,10 @@ Voor Venus D en Venus E 3.0 is de ingebouwde Peak Shaving toegevoegd in controlf
 
 ## Marstek op je dashboard
 
-De bedieningskaart werkt met de geïnstalleerde integratie vanaf versie 0.1.1.
+Vanaf versie 0.1.3 levert de integratie zelf de JavaScript-kaart. De integratie moet geladen zijn voordat de bron beschikbaar is.
 
-1. Open Studio Code Server en upload `dashboard/marstek-diggit-card.js` uit deze repository naar `/config/www/`. Maak `www` aan als die map ontbreekt. Herstart Home Assistant als je `www` net hebt aangemaakt.
-2. Ga naar **Instellingen → Dashboards → ⋮ → Bronnen**. Voeg `/local/marstek-diggit-card.js?v=1` toe als **JavaScript-module**. Zet zo nodig **Geavanceerde modus** aan in je gebruikersprofiel om **Bronnen** te zien.
+1. Ga naar **Instellingen → Dashboards → ⋮ → Bronnen**. Zet zo nodig **Geavanceerde modus** aan in je gebruikersprofiel.
+2. Voeg `/marstek_diggit/marstek-diggit-card.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
 3. Open een bewerkbaar dashboard, kies **Bewerken → Kaart toevoegen → Handmatig** en plak:
 
    ```yaml
