@@ -1,4 +1,5 @@
 const DOMAIN = "marstek_diggit";
+const CARD_VERSION = "0.1.4";
 const DAYS = [
   ["mon", "Ma"], ["tue", "Di"], ["wed", "Wo"], ["thu", "Do"],
   ["fri", "Vr"], ["sat", "Za"], ["sun", "Zo"],
@@ -73,7 +74,10 @@ class MarstekDiggitCard extends HTMLElement {
       <ha-card>
         <header>
           <div class="between">
-            <h2>Marstek</h2>
+            <div>
+              <h2>Marstek</h2>
+              <p class="muted">Kaartversie ${CARD_VERSION}</p>
+            </div>
             <button type="button" id="refresh">Vernieuwen</button>
           </div>
           <div class="between">
