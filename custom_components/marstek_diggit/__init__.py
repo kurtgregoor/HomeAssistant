@@ -15,6 +15,7 @@ from homeassistant.helpers.storage import Store
 
 from .client import DAY_BITS, MODE_CONFIG, MarstekClient, MarstekError
 
+from .passive import PassiveControl, passive_store
 from .tariffs import register_tariff_actions
 
 DOMAIN = "marstek_diggit"
@@ -88,33 +89,34 @@ async def async_setup(hass, config):
         StaticPathConfig("/marstek_diggit/dashboard-0.1.7.js", card_file, False),
         StaticPathConfig("/marstek_diggit/dashboard-0.1.8.js", card_file, False),
         StaticPathConfig("/marstek_diggit/dashboard-0.1.9.js", card_file, False),
+        StaticPathConfig("/marstek_diggit/dashboard-0.1.10.js", card_file, False),
     ])
 
     async def handle(call):
-        clients = hass.data[DOMAIN]
+        batteries = hass.data[DOMAIN]
         data = call.data
         entry_id = data.get("config_entry_id")
-        if entry_id is None and len(clients) == 1:
-            entry_id = next(iter(clients))
-        if entry_id not in clients:
+        if entry_id is None and len(batteries) == 1:
+            entry_id = next(iter(batteries))
+        if entry_id not in batteries:
             raise HomeAssistantError("Selecteer een geconfigureerde Marstek-batterij.")
 
-        client = clients[entry_id]
+        battery = batteries[entry_id]
         try:
             if call.service == "get_slots":
                 async with slot_lock:
                     return {"slots": (await slot_store.async_load() or {}).get(entry_id, {})}
             if call.service == "get_status":
-                return await client.get_status()
+                return await battery.client.get_status()
             if call.service == "get_device_info":
-                return await client.get_device_info()
+                return await battery.client.get_device_info()
             if call.service == "set_mode":
-                await client.set_mode(data["mode"])
+                await battery.set_mode(data["mode"])
             elif call.service == "set_passive":
-                await client.set_passive(data["power"], data["duration_seconds"])
+                await battery.set_passive(data["power"], data["duration_seconds"])
             else:
                 async with slot_lock:
-                    await client.write_slot(_slot_payload(data), data["activate_manual"])
+                    await battery.write_slot(_slot_payload(data), data["activate_manual"])
                     slots = await slot_store.async_load() or {}
                     battery_slots = slots.setdefault(entry_id, {})
                     slot = str(data["slot"])
@@ -144,10 +146,19 @@ async def async_setup(hass, config):
 
 
 async def async_setup_entry(hass, entry):
-    hass.data[DOMAIN][entry.entry_id] = MarstekClient(entry.data[CONF_HOST], entry.data[CONF_PORT])
+    client = MarstekClient(entry.data[CONF_HOST], entry.data[CONF_PORT])
+    store = passive_store(hass, DOMAIN, entry.entry_id)
+    battery = PassiveControl(hass, client, store, entry.entry_id)
+    await battery.async_load()
+    hass.data[DOMAIN][entry.entry_id] = battery
     return True
 
 
 async def async_unload_entry(hass, entry):
-    hass.data[DOMAIN].pop(entry.entry_id, None)
+    battery = hass.data[DOMAIN].pop(entry.entry_id)
+    await battery.async_unload()
     return True
+
+
+async def async_remove_entry(hass, entry):
+    await passive_store(hass, DOMAIN, entry.entry_id).async_remove()

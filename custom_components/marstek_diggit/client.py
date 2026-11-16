@@ -18,6 +18,10 @@ class MarstekError(Exception):
     """The battery did not confirm the request."""
 
 
+class MarstekModeRejected(MarstekError):
+    """The battery explicitly refused a mode change."""
+
+
 class MarstekClient:
     def __init__(self, host, port):
         self.host = host
@@ -49,7 +53,9 @@ class MarstekClient:
 
     async def _set(self, mode, **config):
         result = await self._request("ES.SetMode", id=0, config={"mode": mode, **config})
-        if not isinstance(result, dict) or result.get("set_result") in (False, "false", "0"):
+        if isinstance(result, dict) and result.get("set_result") in (False, "false", "0"):
+            raise MarstekModeRejected(f"De batterij heeft {mode} geweigerd")
+        if not isinstance(result, dict):
             raise MarstekError(f"De batterij heeft {mode} niet bevestigd")
 
     async def _get_status(self):
@@ -84,6 +90,16 @@ class MarstekClient:
     async def set_passive(self, power, duration_seconds):
         async with self.lock:
             await self._set("Passive", passive_cfg={"power": power, "cd_time": duration_seconds})
+
+    async def restore_from_passive(self, mode):
+        async with self.lock:
+            if (await self._get_status())["mode"] != "Passive":
+                return
+            await self._set(mode, **{MODE_CONFIG[mode]: {"enable": 1}})
+            await asyncio.sleep(1.2)
+            current = (await self._get_status())["mode"]
+            if current != mode:
+                raise MarstekError(f"Verwachte modus {mode}, batterij meldt {current}")
 
     async def write_slot(self, schedule, activate_manual):
         async with self.lock:

@@ -1,6 +1,6 @@
 # Marstek by Diggit voor Home Assistant
 
-Versie 0.1.9. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
+Versie 0.1.10. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
 
 ## Installatie via HACS
 
@@ -21,7 +21,7 @@ Versie 0.1.9. Deze integratie stuurt commando’s via de lokale Marstek Open API
 | Actie | Gebruik |
 | --- | --- |
 | `marstek_diggit.set_mode` | Activeer Auto, AI of UPS. |
-| `marstek_diggit.set_passive` | Activeer Passive met vermogen in watt en een duur van 60 tot 86400 seconden. Negatief laadt en positief ontlaadt. |
+| `marstek_diggit.set_passive` | Activeer Passive met vermogen in watt en een duur van 60 tot 86400 seconden. Negatief laadt en positief ontlaadt. Home Assistant herstelt daarna de oorspronkelijke modus (Auto, AI of UPS). |
 | `marstek_diggit.set_slot` | Programmeer slot 1 t/m 9. Gebruik `activate_manual: true` om Manual actief te laten. |
 | `marstek_diggit.disable_slot` | Schrijf een uitgeschakeld slot. Dit vervangt de bestaande gegevens van dat slot. |
 | `marstek_diggit.get_status` | Lees de huidige modus en de velden die je firmware daarbij retourneert. |
@@ -42,6 +42,8 @@ data:
 
 Standaard gebruikt het slot alle weekdagen en staat het aan. Je kunt ook expliciet `action: charge`, `discharge` of `auto` meegeven binnen `data`. Het vermogen voor Auto binnen een slot is `-1` in het protocol. Een vermogen van 0 zonder expliciete laadactie wordt, net als in Diggit, naar die waarde omgezet. Het bereik uit Diggit is −2500 tot +2500 W. Gebruik een vermogen dat je batterij ondersteunt.
 
+Een nieuwe Passive-opdracht tijdens een lopende opdracht vervangt de eindtijd en behoudt de oorspronkelijke modus. Home Assistant bewaart die eindtijd per batterij en haalt zo nodig een verlopen herstelactie in na een herstart. Een geslaagde moduswissel via de integratie annuleert het geplande herstel.
+
 Elke slotwijziging stuurt `ES.SetMode` met `manual_cfg`, inclusief slotnummer, tijden, weekmasker, vermogen en aan/uit. Daardoor kan de batterij kort in Manual gaan. Met `activate_manual: false` probeert de integratie de eerdere modus Auto, AI of UPS na 1,2 seconde terug te zetten. Manual blijft actief als de batterij al in Manual stond. Vanuit Passive of een onbekende modus vereist een slotwijziging `activate_manual: true`, omdat de eerdere toestand dan niet betrouwbaar hersteld kan worden.
 
 Diggit activeert Manual los van een programma door een uitgeschakeld slot 9 mee te sturen. Deze integratie laat je bij het activeren zelf het slot kiezen, zodat slot 9 beschikbaar blijft. De integratie leest geen bestaande slotprogramma’s terug. Controleer bij een time-out de modus en het slot in de Marstek-app voordat je de actie opnieuw uitvoert.
@@ -61,7 +63,7 @@ Voor Venus D en Venus E 3.0 is de ingebouwde Peak Shaving toegevoegd in controlf
 Vanaf versie 0.1.3 levert de integratie zelf de JavaScript-kaart. De integratie moet geladen zijn voordat de bron beschikbaar is.
 
 1. Ga naar **Instellingen → Dashboards → ⋮ → Bronnen**. Zet zo nodig **Geavanceerde modus** aan in je gebruikersprofiel.
-2. Voeg `/marstek_diggit/dashboard-0.1.9.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
+2. Voeg `/marstek_diggit/dashboard-0.1.10.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
 3. Open een bewerkbaar dashboard, kies **Bewerken → Kaart toevoegen → Handmatig** en plak:
 
    ```yaml
@@ -76,7 +78,7 @@ De tijdslotvelden zijn een formulier om een programma te schrijven. Controleer b
 
 ## Kaart voor elektriciteitstarieven
 
-Werk **Marstek by Diggit** via HACS bij naar 0.1.9 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.9.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
+Werk **Marstek by Diggit** via HACS bij naar 0.1.10 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.10.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
 
 ```yaml
 type: custom:marstek-diggit-tariffs-card

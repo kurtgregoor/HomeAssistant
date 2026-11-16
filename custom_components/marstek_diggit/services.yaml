@@ -25,7 +25,7 @@ set_mode:
           options: ["Auto", "AI", "UPS"]
 set_passive:
   name: Activeer Passive
-  description: Stel tijdelijk een laad- of ontlaadvermogen in.
+  description: Stel tijdelijk een vermogen in. Home Assistant herstelt daarna Auto, AI of UPS als de batterij nog in Passive staat.
   fields:
     <<: *target_field
     power: &power_field

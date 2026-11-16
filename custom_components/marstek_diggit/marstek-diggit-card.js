@@ -1,5 +1,5 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.9";
+const CARD_VERSION = "0.1.10";
 const STATUS_REFRESH_MS = 30000;
 
 function formatBatteryActivity(value) {

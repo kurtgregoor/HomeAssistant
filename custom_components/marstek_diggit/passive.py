@@ -1,0 +1,128 @@
+"""Persist and restore a temporary Passive command for one config entry."""
+
+from asyncio import Lock
+from datetime import datetime, timedelta, timezone
+import logging
+
+from homeassistant.helpers.event import async_track_point_in_utc_time
+from homeassistant.helpers.storage import Store
+
+from .client import MODE_CONFIG, MarstekError, MarstekModeRejected
+
+_LOGGER = logging.getLogger(__name__)
+_RETRY_DELAY = timedelta(seconds=30)
+
+
+def passive_store(hass, domain, entry_id):
+    return Store(hass, 1, f"{domain}.passive.{entry_id}", atomic_writes=True)
+
+
+class PassiveControl:
+    def __init__(self, hass, client, store, entry_id):
+        self.client = client
+        self._hass = hass
+        self._store = store
+        self._entry_id = entry_id
+        self._lock = Lock()
+        self._pending = None
+        self._cancel_timer = None
+        self._unloaded = False
+
+    async def async_load(self):
+        if pending := await self._store.async_load():
+            self._set_pending(pending)
+
+    async def async_unload(self):
+        self._unloaded = True
+        async with self._lock:
+            self._cancel()
+
+    def _ensure_loaded(self):
+        if self._unloaded:
+            raise MarstekError("Deze Marstek-batterij is niet meer geladen.")
+
+    def _cancel(self):
+        if self._cancel_timer is not None:
+            self._cancel_timer()
+            self._cancel_timer = None
+
+    def _schedule(self, pending, when):
+        self._cancel()
+
+        async def restore(_now):
+            await self._restore(pending)
+
+        self._cancel_timer = async_track_point_in_utc_time(self._hass, restore, when)
+
+    def _set_pending(self, pending):
+        self._pending = pending
+        deadline = datetime.fromisoformat(pending["ends_at"])
+        self._schedule(pending, max(deadline, datetime.now(timezone.utc)))
+
+    async def set_passive(self, power, duration_seconds):
+        async with self._lock:
+            self._ensure_loaded()
+            mode = (await self.client.get_status())["mode"]
+            previous = self._pending if mode == "Passive" else None
+            if previous:
+                mode = previous["original_mode"]
+            if mode not in MODE_CONFIG:
+                raise MarstekError(f"Passive niet gestart: {mode} kan niet worden hersteld.")
+
+            duration = timedelta(seconds=duration_seconds)
+            deadline = datetime.now(timezone.utc) + duration
+            pending = {"original_mode": mode, "ends_at": deadline.isoformat()}
+            # Save before sending UDP. The battery may apply the command even
+            # if Home Assistant stops or the UDP acknowledgement is lost.
+            await self._store.async_save(pending)
+            self._set_pending(pending)
+            try:
+                await self.client.set_passive(power, duration_seconds)
+            except MarstekModeRejected:
+                if previous is None:
+                    await self._clear()
+                else:
+                    await self._store.async_save(previous)
+                    self._set_pending(dict(previous))
+                raise
+
+            deadline = datetime.now(timezone.utc) + duration
+            confirmed = {**pending, "ends_at": deadline.isoformat()}
+            await self._store.async_save(confirmed)
+            self._set_pending(confirmed)
+
+    async def set_mode(self, mode):
+        async with self._lock:
+            self._ensure_loaded()
+            await self.client.set_mode(mode)
+            await self._clear()
+
+    async def write_slot(self, schedule, activate_manual):
+        async with self._lock:
+            self._ensure_loaded()
+            await self.client.write_slot(schedule, activate_manual)
+            if activate_manual:
+                await self._clear()
+
+    async def _clear(self):
+        if self._pending:
+            await self._store.async_remove()
+            self._pending = None
+            self._cancel()
+
+    async def _restore(self, pending):
+        async with self._lock:
+            if self._unloaded or self._pending is not pending:
+                return
+            self._cancel_timer = None
+            try:
+                await self.client.restore_from_passive(pending["original_mode"])
+                await self._clear()
+            except (MarstekError, OSError) as exc:
+                _LOGGER.warning(
+                    "Herstel naar %s voor Marstek-batterij %s mislukt. "
+                    "Nieuwe poging over %s seconden: %s",
+                    pending["original_mode"], self._entry_id,
+                    int(_RETRY_DELAY.total_seconds()), exc,
+                )
+                self._schedule(pending, datetime.now(timezone.utc) + _RETRY_DELAY)
