@@ -1,0 +1,162 @@
+blueprint:
+  name: Marstek-piekregeling met Tesla-ontlaadblokkering
+  description: >
+    Ondersteunt een instelbare grens voor de actuele netafname met twee
+    Marstek-batterijen in Auto. Tijdens gemeten autoladen vanaf 1000 W krijgt
+    Passive 0 W voorrang. Gebruik deze blueprint in plaats van de losse
+    ontlaadblokkering. Vereist Marstek by Diggit v0.1.13 of nieuwer.
+  domain: automation
+  homeassistant:
+    min_version: "2025.7.0"
+  input:
+    charger_power:
+      name: Actueel laadvermogen (W)
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    grid_power:
+      name: HomeWizard P1 netvermogen (W)
+      description: Kies het totale netvermogen met positieve waarden bij afname.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    grid_limit:
+      name: Maximale netafname
+      selector:
+        number:
+          min: 0.5
+          max: 25
+          step: 0.1
+          mode: box
+          unit_of_measurement: kW
+    discharge_limit:
+      name: Maximaal ontlaadvermogen per batterij
+      default: 1000
+      selector:
+        number:
+          min: 100
+          max: 2500
+          step: 50
+          mode: box
+          unit_of_measurement: W
+    first_battery:
+      name: Eerste Marstek-batterij
+      selector:
+        config_entry:
+          integration: marstek_diggit
+    second_battery:
+      name: Tweede Marstek-batterij
+      selector:
+        config_entry:
+          integration: marstek_diggit
+
+trigger_variables:
+  charger_entity: !input charger_power
+  grid_entity: !input grid_power
+  grid_limit_kw: !input grid_limit
+
+variables:
+  charger_entity: !input charger_power
+  grid_entity: !input grid_power
+  grid_limit_kw: !input grid_limit
+  first_battery_id: !input first_battery
+  second_battery_id: !input second_battery
+  battery_limit_w: !input discharge_limit
+
+triggers:
+  - trigger: template
+    id: charging_started
+    value_template: "{{ states(charger_entity) | float(0) >= 1000 }}"
+  - trigger: time_pattern
+    id: charging_refresh
+    minutes: "/2"
+    seconds: 0
+  - trigger: template
+    id: peak
+    value_template: >
+      {{ states(grid_entity) | float(0) > (grid_limit_kw | float * 1000) }}
+  - trigger: time_pattern
+    id: peak
+    seconds: 30
+  - trigger: homeassistant
+    id: startup
+    event: start
+
+conditions:
+  - condition: template
+    value_template: "{{ first_battery_id != second_battery_id }}"
+
+actions:
+  - condition: template
+    value_template: >
+      {{ is_number(states(charger_entity))
+         and state_attr(charger_entity, 'unit_of_measurement') == 'W' }}
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ states(charger_entity) | float(0) >= 1000 }}"
+        sequence:
+          - condition: trigger
+            id: [charging_started, charging_refresh, startup]
+          - parallel:
+              - action: marstek_diggit.set_passive
+                data:
+                  config_entry_id: !input first_battery
+                  power: 0
+                  duration_seconds: 180
+              - action: marstek_diggit.set_passive
+                data:
+                  config_entry_id: !input second_battery
+                  power: 0
+                  duration_seconds: 180
+    default:
+      - condition: template
+        value_template: >
+          {{ state_attr(grid_entity, 'unit_of_measurement') == 'W'
+             and states(grid_entity) | float(0) > (grid_limit_kw | float * 1000) }}
+      - action: marstek_diggit.get_status
+        data:
+          config_entry_id: !input first_battery
+        response_variable: first_status
+      - action: marstek_diggit.get_status
+        data:
+          config_entry_id: !input second_battery
+        response_variable: second_status
+      - condition: template
+        value_template: >
+          {{ first_status.get('mode') == 'Auto' and second_status.get('mode') == 'Auto'
+             and is_number(first_status.get('ongrid_power'))
+             and is_number(second_status.get('ongrid_power')) }}
+      - variables:
+          watts_per_battery: >
+            {% set demand_w = states(grid_entity) | float(0)
+               + first_status.ongrid_power | float + second_status.ongrid_power | float %}
+            {% set requested_w = (demand_w - (grid_limit_kw | float * 1000)) / 2 %}
+            {{ [battery_limit_w | int, requested_w | round(0, 'ceil') | int] | min }}
+      - condition: template
+        value_template: >
+          {{ watts_per_battery | int > 0
+             and is_number(states(charger_entity))
+             and states(charger_entity) | float(0) < 1000
+             and state_attr(charger_entity, 'unit_of_measurement') == 'W'
+             and state_attr(grid_entity, 'unit_of_measurement') == 'W'
+             and states(grid_entity) | float(0) > (grid_limit_kw | float * 1000) }}
+      - parallel:
+          - action: marstek_diggit.set_passive
+            data:
+              config_entry_id: !input first_battery
+              power: "{{ watts_per_battery }}"
+              duration_seconds: 60
+          - action: marstek_diggit.set_passive
+            data:
+              config_entry_id: !input second_battery
+              power: "{{ watts_per_battery }}"
+              duration_seconds: 60
+
+mode: queued
+max: 4
+max_exceeded: silent
