@@ -1,0 +1,48 @@
+blueprint:
+  name: Marstek energielogboek
+  description: >
+    Slaat elke gemeten vermogenswijziging van de gekozen batterijen,
+    laadpaal en zonnepanelen op in Activiteit. Kies de actuele
+    vermogenssensoren in W of kW. Voeg diezelfde sensoren toe aan een
+    Activiteit-kaart om alle regels op één dashboard te zien.
+  domain: automation
+  homeassistant:
+    min_version: "2025.7.0"
+  input:
+    power_sensors:
+      name: Vermogenssensoren
+      description: Selecteer beide batterijen, de laadpaal en de zonneproductie.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: sensor
+              device_class: power
+
+triggers:
+  - trigger: state
+    entity_id: !input power_sensors
+
+conditions:
+  - condition: template
+    value_template: >
+      {{ trigger is defined and trigger.platform == 'state'
+         and trigger.from_state is not none and trigger.to_state is not none
+         and trigger.from_state.state != trigger.to_state.state
+         and is_number(trigger.from_state.state) and is_number(trigger.to_state.state)
+         and trigger.from_state.state | float != trigger.to_state.state | float
+         and trigger.to_state.attributes.get('unit_of_measurement') in ['W', 'kW']
+         and trigger.from_state.attributes.get('unit_of_measurement')
+             == trigger.to_state.attributes.get('unit_of_measurement') }}
+
+actions:
+  - action: logbook.log
+    data:
+      entity_id: "{{ trigger.entity_id }}"
+      name: "{{ trigger.to_state.name }}"
+      message: >
+        Vermogen van {{ trigger.from_state.state }} naar {{ trigger.to_state.state }}
+        {{ trigger.to_state.attributes.unit_of_measurement }}.
+
+mode: queued
+max: 100
