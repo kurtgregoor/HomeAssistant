@@ -28,6 +28,12 @@ set_passive:
   description: Stel tijdelijk een vermogen in. Home Assistant herstelt daarna Auto, AI of UPS als de batterij nog in Passive staat.
   fields:
     <<: *target_field
+    source:
+      name: Bron
+      description: Laat de energieprogrammatie haar eigen tijdelijke opdrachten verlengen.
+      selector:
+        select:
+          options: ["energy_program"]
     power: &power_field
       name: Vermogen
       description: Negatief laadt en positief ontlaadt.

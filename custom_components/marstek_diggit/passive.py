@@ -59,18 +59,35 @@ class PassiveControl:
         deadline = datetime.fromisoformat(pending["ends_at"])
         self._schedule(pending, max(deadline, datetime.now(timezone.utc)))
 
-    async def set_passive(self, power, duration_seconds):
+    async def get_status(self):
+        async with self._lock:
+            status = await self.client.get_status()
+            if status["mode"] == "Passive" and self._pending:
+                status["passive_source"] = self._pending.get("source")
+                status["passive_power"] = self._pending.get("power")
+            return status
+
+    async def set_passive(self, power, duration_seconds, source=None):
         async with self._lock:
             self._ensure_loaded()
             previous_mode = (await self.client.get_status())["mode"]
             previous = self._pending if previous_mode == "Passive" else None
             mode = previous["original_mode"] if previous else previous_mode
+            if source and (
+                mode != "Auto" or (previous and previous.get("source") != source)
+            ):
+                raise MarstekError("De programmatie kan alleen Auto of haar eigen Passive-opdracht aanpassen.")
             if mode not in MODE_CONFIG:
                 raise MarstekError(f"Passive niet gestart: {mode} kan niet worden hersteld.")
 
             duration = timedelta(seconds=duration_seconds)
             deadline = datetime.now(timezone.utc) + duration
-            pending = {"original_mode": mode, "ends_at": deadline.isoformat()}
+            pending = {
+                "original_mode": mode,
+                "ends_at": deadline.isoformat(),
+                "source": source,
+                "power": power,
+            }
             # Save before sending UDP. The battery may apply the command even
             # if Home Assistant stops or the UDP acknowledgement is lost.
             await self._store.async_save(pending)

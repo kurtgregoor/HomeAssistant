@@ -32,6 +32,7 @@ SCHEMAS = {
     "set_mode": vol.Schema({TARGET: str, vol.Required("mode"): vol.In(MODE_CONFIG)}),
     "set_passive": vol.Schema({
         TARGET: str,
+        vol.Optional("source"): vol.In(("energy_program",)),
         vol.Required("power"): POWER,
         vol.Required("duration_seconds"): vol.All(int, vol.Range(min=60, max=86400)),
     }),
@@ -93,6 +94,7 @@ async def async_setup(hass, config):
         StaticPathConfig("/marstek_diggit/dashboard-0.1.11.js", card_file, False),
         StaticPathConfig("/marstek_diggit/dashboard-0.1.12.js", card_file, False),
         StaticPathConfig("/marstek_diggit/dashboard-0.1.13.js", card_file, False),
+        StaticPathConfig("/marstek_diggit/dashboard-0.1.14.js", card_file, False),
     ])
 
     async def handle(call):
@@ -110,13 +112,13 @@ async def async_setup(hass, config):
                 async with slot_lock:
                     return {"slots": (await slot_store.async_load() or {}).get(entry_id, {})}
             if call.service == "get_status":
-                return await battery.client.get_status()
+                return await battery.get_status()
             if call.service == "get_device_info":
                 return await battery.client.get_device_info()
             if call.service == "set_mode":
                 await battery.set_mode(data["mode"])
             elif call.service == "set_passive":
-                await battery.set_passive(data["power"], data["duration_seconds"])
+                await battery.set_passive(data["power"], data["duration_seconds"], data.get("source"))
             else:
                 async with slot_lock:
                     await battery.write_slot(_slot_payload(data), data["activate_manual"])
