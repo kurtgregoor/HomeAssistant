@@ -1,0 +1,67 @@
+blueprint:
+  name: Marstek-ontlaadblokkering tijdens Tesla-laden
+  description: >
+    Houd twee Marstek-batterijen tijdelijk op Passive 0 W tijdens het laden
+    van de auto. Vereist Marstek by Diggit v0.1.13 of nieuwer.
+    Kies twee verschillende batterijen die normaal op Auto/SelfConsumption staan.
+  domain: automation
+  homeassistant:
+    min_version: "2025.7.0"
+  input:
+    charger_power:
+      name: Actueel laadvermogen (W)
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
+    first_battery:
+      name: Eerste Marstek-batterij
+      selector:
+        config_entry:
+          integration: marstek_diggit
+    second_battery:
+      name: Tweede Marstek-batterij
+      selector:
+        config_entry:
+          integration: marstek_diggit
+
+trigger_variables:
+  charger_entity: !input charger_power
+
+variables:
+  first_battery_id: !input first_battery
+  second_battery_id: !input second_battery
+
+triggers:
+  - trigger: template
+    value_template: "{{ states(charger_entity) | float(0) >= 1000 }}"
+  - trigger: time_pattern
+    minutes: "/2"
+    seconds: 0
+  - trigger: homeassistant
+    event: start
+
+conditions:
+  - condition: template
+    value_template: "{{ first_battery_id != second_battery_id }}"
+  - condition: template
+    value_template: >
+      {{ states(charger_entity) | float(0) >= 1000
+         and state_attr(charger_entity, 'unit_of_measurement') == 'W' }}
+
+actions:
+  - parallel:
+      - action: marstek_diggit.set_passive
+        data:
+          config_entry_id: !input first_battery
+          power: 0
+          duration_seconds: 180
+      - action: marstek_diggit.set_passive
+        data:
+          config_entry_id: !input second_battery
+          power: 0
+          duration_seconds: 180
+
+mode: single
+max_exceeded: silent
