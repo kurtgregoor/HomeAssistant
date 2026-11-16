@@ -1,6 +1,7 @@
 """Marstek Open API over UDP."""
 
 import asyncio
+from datetime import datetime, timezone
 from itertools import count
 import json
 import socket
@@ -17,6 +18,10 @@ MODES.update(dict.fromkeys(("selfconsumption", "self-consumption", "self consump
 
 class MarstekError(Exception):
     """The battery did not confirm the request."""
+
+
+class MarstekNoResponse(MarstekError):
+    """No usable transport response was received."""
 
 
 class MarstekModeRejected(MarstekError):
@@ -38,7 +43,9 @@ class MarstekClient:
                 sock.send(json.dumps(request).encode())
                 response = json.loads(sock.recv(65535))
         except (OSError, ValueError) as exc:
-            raise MarstekError(f"{request['method']}: geen geldig antwoord van de batterij") from exc
+            raise MarstekNoResponse(
+                f"{request['method']}: geen geldig antwoord van de batterij"
+            ) from exc
 
         if not isinstance(response, dict) or response.get("id") != request["id"]:
             raise MarstekError(f"{request['method']}: onverwacht antwoord")
@@ -71,7 +78,11 @@ class MarstekClient:
 
     async def get_status(self):
         async with self.lock:
-            return await self._get_status()
+            try:
+                return await self._get_status()
+            except MarstekNoResponse:
+                await asyncio.sleep(0.8)
+                return await self._get_status()
 
     async def get_device_info(self):
         async with self.lock:
@@ -88,9 +99,35 @@ class MarstekClient:
         async with self.lock:
             await self._set(mode, **{MODE_CONFIG[mode]: {"enable": 1}})
 
-    async def set_passive(self, power, duration_seconds):
+    async def set_passive(self, power, duration_seconds, previous_mode):
+        passive_cfg = {"power": power, "cd_time": duration_seconds}
         async with self.lock:
-            await self._set("Passive", passive_cfg={"power": power, "cd_time": duration_seconds})
+            # Give the battery time between the preceding status read and the write.
+            await asyncio.sleep(0.8)
+            sent_at = datetime.now(timezone.utc)
+            try:
+                await self._set("Passive", passive_cfg=passive_cfg)
+            except MarstekNoResponse as first_error:
+                await asyncio.sleep(0.8)
+                try:
+                    current_mode = (await self._get_status())["mode"]
+                except MarstekError:
+                    current_mode = None
+
+                if current_mode == "Passive" and previous_mode != "Passive":
+                    return sent_at
+                if current_mode not in (None, previous_mode):
+                    raise first_error
+
+                # The mode alone cannot confirm new settings when already in Passive.
+                await asyncio.sleep(0.8)
+                sent_at = datetime.now(timezone.utc)
+                try:
+                    await self._set("Passive", passive_cfg=passive_cfg)
+                except MarstekModeRejected as retry_error:
+                    # The first attempt may still have taken effect.
+                    raise first_error from retry_error
+            return sent_at
 
     async def restore_from_passive(self, mode):
         async with self.lock:
