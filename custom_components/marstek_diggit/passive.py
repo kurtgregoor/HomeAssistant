@@ -62,9 +62,10 @@ class PassiveControl:
     async def set_passive(self, power, duration_seconds):
         async with self._lock:
             self._ensure_loaded()
-            previous_mode = (await self.client.get_status())["mode"]
-            previous = self._pending if previous_mode == "Passive" else None
-            mode = previous["original_mode"] if previous else previous_mode
+            mode = (await self.client.get_status())["mode"]
+            previous = self._pending if mode == "Passive" else None
+            if previous:
+                mode = previous["original_mode"]
             if mode not in MODE_CONFIG:
                 raise MarstekError(f"Passive niet gestart: {mode} kan niet worden hersteld.")
 
@@ -76,9 +77,7 @@ class PassiveControl:
             await self._store.async_save(pending)
             self._set_pending(pending)
             try:
-                started_at = await self.client.set_passive(
-                    power, duration_seconds, previous_mode
-                )
+                await self.client.set_passive(power, duration_seconds)
             except MarstekModeRejected:
                 if previous is None:
                     await self._clear()
@@ -87,7 +86,7 @@ class PassiveControl:
                     self._set_pending(dict(previous))
                 raise
 
-            deadline = started_at + duration
+            deadline = datetime.now(timezone.utc) + duration
             confirmed = {**pending, "ends_at": deadline.isoformat()}
             await self._store.async_save(confirmed)
             self._set_pending(confirmed)
