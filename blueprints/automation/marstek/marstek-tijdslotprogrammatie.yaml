@@ -3,7 +3,7 @@ blueprint:
   description: >
     Ondersteunt een instelbare grens voor de actuele netafname met twee
     Marstek-batterijen in Auto. Tijdens gemeten autoladen vanaf 1000 W krijgt
-    Passive 0 W voorrang. In elk superdalvenster laadt de regeling één
+    Passive 0 W voorrang. In elk dal- en superdalvenster laadt de regeling één
     batterij tegelijk richting 100%. Gemeten zonneoverschot krijgt voorrang.
     Gebruik deze blueprint in plaats van eerdere Marstek-automatiseringen.
     Vereist Marstek by Diggit v0.1.14 of nieuwer.
@@ -46,7 +46,7 @@ blueprint:
           mode: box
           unit_of_measurement: W
     charge_limit:
-      name: Maximaal laadvermogen in superdal
+      name: Maximaal laadvermogen in dal en superdal
       default: 1000
       selector:
         number:
@@ -189,7 +189,7 @@ actions:
             {{- {'kind': slot.kind, 'end': slot.end} }}
       - variables:
           slot_key: "{{ current_slot.kind ~ ':' ~ current_slot.end }}"
-          super_offpeak_end: "{{ current_slot.end if current_slot.kind == 'super_offpeak' else 0 }}"
+          charge_slot_end: "{{ current_slot.end if current_slot.kind in ['offpeak', 'super_offpeak'] else 0 }}"
           slot_changed: "{{ plan.get('slot', '') != slot_key }}"
       - if:
           - condition: template
@@ -202,11 +202,11 @@ actions:
               value: "{{ {'slot': slot_key, 'active_until': plan.get('active_until', 0)} | to_json }}"
       - condition: template
         value_template: >
-          {{ (super_offpeak_end | int > 0
+          {{ (charge_slot_end | int > 0
               or states(grid_entity) | float(0) > grid_limit_kw | float * 1000
               or plan.get('active_until', 0) | int > now_epoch | int)
              and (slot_changed or trigger.id != 'periodic'
-                  or (super_offpeak_end | int > 0
+                  or (charge_slot_end | int > 0
                       and check_minute | int % 30 == 0 and check_second | int == 0)
                   or plan.get('active_until', 0) | int > now_epoch | int) }}
       - action: marstek_diggit.get_status
@@ -242,7 +242,7 @@ actions:
               - condition: template
                 value_template: >
                   {{ grid_w | float > limit_w | float
-                     and not (super_offpeak_end | int > 0 and (first_charging or second_charging)) }}
+                     and not (charge_slot_end | int > 0 and (first_charging or second_charging)) }}
             sequence:
               - variables:
                   watts_per_battery: >
@@ -272,7 +272,7 @@ actions:
           - condition: template
             value_template: >
               {% set t = now() %}
-              {{ super_offpeak_end | int * 60 - (t.hour * 3600 + t.minute * 60 + t.second) >= 90 }}
+              {{ charge_slot_end | int * 60 - (t.hour * 3600 + t.minute * 60 + t.second) >= 90 }}
           - condition: template
             value_template: >
               {{ is_number(first_status.get('bat_soc')) and is_number(second_status.get('bat_soc'))
@@ -316,7 +316,7 @@ actions:
           - condition: template
             value_template: >
               {% set t = now() %}
-              {{ super_offpeak_end | int * 60 - (t.hour * 3600 + t.minute * 60 + t.second) >= 65 }}
+              {{ charge_slot_end | int * 60 - (t.hour * 3600 + t.minute * 60 + t.second) >= 65 }}
           - variables:
               final_charge_w: >
                 {% set live_budget = (limit_w | float - states(grid_entity) | float - selected_output_w | float - 200) // 50 * 50 %}
