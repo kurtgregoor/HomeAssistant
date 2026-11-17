@@ -18,6 +18,14 @@ blueprint:
       name: Naam in het logboek
       selector:
         text:
+    log_entity:
+      name: Vermogenssensor van deze batterij
+      description: Via deze sensor filter je de logregels in Activiteit.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
     last_activity:
       name: Tekst-helper voor deze batterij
       selector:
@@ -63,7 +71,7 @@ actions:
     then:
       - action: logbook.log
         data:
-          entity_id: !input last_activity
+          entity_id: !input log_entity
           name: !input battery_name
           message: >
             {{ previous_activity }} → {{ activity }} · batterij {{ battery_status.bat_soc }}%.
