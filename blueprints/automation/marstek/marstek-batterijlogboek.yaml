@@ -1,0 +1,76 @@
+blueprint:
+  name: Marstek batterijlogboek
+  description: >
+    Controleert één Marstek-batterij elke 30 seconden. Schrijft alleen bij
+    een actiewijziging een logregel met het actuele batterijpercentage.
+    Maak per batterij één automatisering en één eigen Tekst-helper aan.
+    De eerste meting bepaalt de beginstand.
+  domain: automation
+  homeassistant:
+    min_version: "2025.7.0"
+  input:
+    battery:
+      name: Marstek-batterij
+      selector:
+        config_entry:
+          integration: marstek_diggit
+    battery_name:
+      name: Naam in het logboek
+      selector:
+        text:
+    last_activity:
+      name: Tekst-helper voor deze batterij
+      selector:
+        entity:
+          filter:
+            - domain: input_text
+
+variables:
+  activity_helper: !input last_activity
+
+triggers:
+  - trigger: time_pattern
+    seconds: "/30"
+
+conditions:
+  - condition: template
+    value_template: "{{ has_value(activity_helper) }}"
+
+actions:
+  - action: marstek_diggit.get_status
+    data:
+      config_entry_id: !input battery
+    response_variable: battery_status
+  - condition: template
+    value_template: >
+      {{ is_number(battery_status.get('ongrid_power'))
+         and is_number(battery_status.get('bat_soc'))
+         and 0 <= battery_status.bat_soc | float <= 100
+         and battery_status.get('mode') is string }}
+  - variables:
+      previous_activity: "{{ states(activity_helper) }}"
+      activity: >
+        {% set power = battery_status.ongrid_power | float %}
+        {% if power <= -20 %}Laden
+        {% elif power >= 20 %}Ontladen
+        {% elif battery_status.mode == 'Passive' %}Passief
+        {% else %}In rust{% endif %}
+  - condition: template
+    value_template: "{{ activity != previous_activity }}"
+  - if:
+      - condition: template
+        value_template: "{{ previous_activity in ['Laden', 'Ontladen', 'Passief', 'In rust'] }}"
+    then:
+      - action: logbook.log
+        data:
+          entity_id: !input last_activity
+          name: !input battery_name
+          message: >
+            {{ previous_activity }} → {{ activity }} · batterij {{ battery_status.bat_soc }}%.
+  - action: input_text.set_value
+    target:
+      entity_id: !input last_activity
+    data:
+      value: "{{ activity }}"
+
+mode: single
