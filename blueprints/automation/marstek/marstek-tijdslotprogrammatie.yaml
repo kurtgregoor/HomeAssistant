@@ -4,7 +4,7 @@ blueprint:
     Ondersteunt een instelbare grens voor de actuele netafname met twee
     Marstek-batterijen in Auto. Tijdens gemeten autoladen vanaf 1000 W krijgt
     Passive 0 W voorrang. In elk superdalvenster laadt de regeling één
-    batterij tegelijk richting 90%. Gemeten zonneoverschot krijgt voorrang.
+    batterij tegelijk richting 100%. Gemeten zonneoverschot krijgt voorrang.
     Gebruik deze blueprint in plaats van eerdere Marstek-automatiseringen.
     Vereist Marstek by Diggit v0.1.14 of nieuwer.
   domain: automation
@@ -278,12 +278,12 @@ actions:
               {{ is_number(first_status.get('bat_soc')) and is_number(second_status.get('bat_soc'))
                  and 0 <= first_status.bat_soc | float <= 100
                  and 0 <= second_status.bat_soc | float <= 100
-                 and [first_status.bat_soc | float, second_status.bat_soc | float] | min < 90 }}
+                 and [first_status.bat_soc | float, second_status.bat_soc | float] | min < 100 }}
           - variables:
               charge_first: >
                 {% set first = first_status.bat_soc | float %}
                 {% set second = second_status.bat_soc | float %}
-                {{ first < 90 and (second >= 90 or first_charging or (not second_charging and first <= second)) }}
+                {{ first < 100 and (second >= 100 or first_charging or (not second_charging and first <= second)) }}
               selected_output_w: >
                 {{ (first_status.ongrid_power if charge_first else second_status.ongrid_power) | float }}
               available_w: "{{ limit_w | float - (demand_without_batteries_w | float) - 200 }}"
