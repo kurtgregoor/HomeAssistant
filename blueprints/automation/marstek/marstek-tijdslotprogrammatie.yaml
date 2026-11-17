@@ -4,7 +4,8 @@ blueprint:
     Ondersteunt een instelbare grens voor de actuele netafname met twee
     Marstek-batterijen in Auto. Tijdens gemeten autoladen vanaf 1000 W krijgt
     Passive 0 W voorrang. In elk dal- en superdalvenster laadt de regeling één
-    batterij tegelijk richting 100%. Gemeten zonneoverschot krijgt voorrang.
+    batterij tegelijk richting 100%. In dal geldt ook een aparte grens voor
+    andere toestellen. Gemeten zonneoverschot krijgt voorrang.
     Gebruik deze blueprint in plaats van eerdere Marstek-automatiseringen.
     Vereist Marstek by Diggit v0.1.14 of nieuwer.
   domain: automation
@@ -55,6 +56,28 @@ blueprint:
           step: 50
           mode: box
           unit_of_measurement: W
+    offpeak_household_limit:
+      name: Grens voor andere toestellen in dal
+      description: Vanaf deze belasting pauzeert gepland batterijladen tijdens dal.
+      default: 1500
+      selector:
+        number:
+          min: 100
+          max: 15000
+          step: 100
+          mode: box
+          unit_of_measurement: W
+    solar_power:
+      name: Actueel vermogen zonnepanelen (optioneel)
+      description: >
+        Kies de totale productie in W of kW, positief bij productie.
+        Zonder deze sensor gebruikt de dalcontrole het verbruik na zonneproductie.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: power
     planning_state:
       name: Tekst-helper voor de planning
       description: Deze helper bewaart het tariefblok en het einde van de actieve controle.
@@ -87,6 +110,8 @@ variables:
   battery_limit_w: !input discharge_limit
   charge_limit_w: !input charge_limit
   planning_helper: !input planning_state
+  offpeak_limit_w: !input offpeak_household_limit
+  solar_entity: !input solar_power
 
 triggers:
   - trigger: template
@@ -269,6 +294,21 @@ actions:
                       power: "{{ watts_per_battery }}"
                       duration_seconds: 60
         default:
+          - variables:
+              solar_reading_valid: >
+                {{ not solar_entity or (is_number(states(solar_entity))
+                   and state_attr(solar_entity, 'unit_of_measurement') in ['W', 'kW']) }}
+              solar_w: >
+                {% set factor = 1000 if solar_entity and state_attr(solar_entity, 'unit_of_measurement') == 'kW' else 1 %}
+                {{ [0, states(solar_entity) | float(0) * factor] | max if solar_entity else 0 }}
+              other_load_w: >
+                {{ demand_without_batteries_w | float + solar_w | float
+                   - ([0, states(charger_entity) | float(0)] | max) }}
+          - alias: Wacht in dal als andere toestellen veel vragen
+            condition: template
+            value_template: >
+              {{ current_slot.kind != 'offpeak'
+                 or (solar_reading_valid and other_load_w | float < offpeak_limit_w | float) }}
           - condition: template
             value_template: >
               {% set t = now() %}
