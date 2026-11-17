@@ -113,6 +113,19 @@ triggers:
 conditions:
   - condition: template
     value_template: "{{ first_battery_id != second_battery_id }}"
+  - condition: template
+    value_template: >
+      {% set charging = states(charger_entity) | float(0) >= 1000 %}
+      {% set saved = states(planning_helper) | from_json(default={}) %}
+      {% set active_until = saved.get('active_until', 0) | int if saved is mapping else 0 %}
+      {% if charging %}
+        {{ trigger.id in ['charging_started', 'startup']
+           or (trigger.id == 'periodic' and trigger.now.second == 0
+               and trigger.now.minute % 2 == 0) }}
+      {% else %}
+        {{ trigger.id != 'periodic' or trigger.now.second == 0
+           or active_until > as_timestamp(now()) | int }}
+      {% endif %}
 
 actions:
   - variables:
@@ -131,10 +144,6 @@ actions:
           - condition: template
             value_template: "{{ states(charger_entity) | float(0) >= 1000 }}"
         sequence:
-          - condition: template
-            value_template: >
-              {{ trigger.id in ['charging_started', 'startup']
-                 or (trigger.id == 'periodic' and check_minute | int % 2 == 0 and check_second | int == 0) }}
           - parallel:
               - action: marstek_diggit.set_passive
                 data:
@@ -149,10 +158,6 @@ actions:
                   power: 0
                   duration_seconds: 180
     default:
-      - condition: template
-        value_template: >
-          {{ trigger.id != 'periodic' or check_second | int == 0
-             or plan.get('active_until', 0) | int > now_epoch | int }}
       - condition: template
         value_template: >
           {{ is_number(states(grid_entity))
