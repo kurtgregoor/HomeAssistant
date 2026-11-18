@@ -149,19 +149,38 @@ class PassiveControl:
             if status["mode"] == "Auto":
                 return True
             watts = status.get("ongrid_power")
-            if status["mode"] != "Passive" or not isinstance(watts, (int, float)) or abs(watts) > 20:
+            if status["mode"] != "Passive" or not isinstance(watts, (int, float)) or not isfinite(watts) or abs(watts) > 20:
                 raise MarstekError("Bevestig eerst Passive 0 W vóór Auto.")
-            await self.client.set_mode("Auto")
-            for delay in (1.2, 2):
-                await sleep(delay)
+            last_error = None
+            for _attempt in range(2):
+                # The same V151 pacing used for the Passive transition.
+                await sleep(0.8)
                 if not still_allowed():
                     return False
                 try:
-                    if (await self.client.get_status())["mode"] == "Auto":
-                        return True
-                except MarstekError:
-                    continue
-            raise MarstekError("Auto niet bevestigd door de batterij.")
+                    await self.client.set_mode("Auto")
+                except MarstekModeRejected:
+                    raise
+                except MarstekError as exc:
+                    last_error = exc
+                await sleep(1.2)
+                if not still_allowed():
+                    return False
+                try:
+                    observed = await self.client.get_status()
+                except MarstekError as exc:
+                    last_error = exc
+                    # A missing read cannot establish the safety of a retry.
+                    break
+                if not still_allowed():
+                    return False
+                if observed["mode"] == "Auto":
+                    return True
+                watts = observed.get("ongrid_power")
+                if (observed["mode"] != "Passive" or not isinstance(watts, (int, float))
+                        or not isfinite(watts) or abs(watts) > 20):
+                    break
+            raise MarstekError("Auto niet bevestigd door de batterij.") from last_error
 
     async def set_mode(self, mode):
         async with self._lock:

@@ -1,6 +1,6 @@
 # Marstek by Diggit voor Home Assistant
 
-Versie 0.1.17. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
+Versie 0.1.18. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
 
 ## Installatie via HACS
 
@@ -63,7 +63,7 @@ Voor Venus D en Venus E 3.0 is de ingebouwde Peak Shaving toegevoegd in controlf
 Vanaf versie 0.1.3 levert de integratie zelf de JavaScript-kaart. De integratie moet geladen zijn voordat de bron beschikbaar is.
 
 1. Ga naar **Instellingen → Dashboards → ⋮ → Bronnen**. Zet zo nodig **Geavanceerde modus** aan in je gebruikersprofiel.
-2. Voeg `/marstek_diggit/dashboard-0.1.17.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
+2. Voeg `/marstek_diggit/dashboard-0.1.18.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
 3. Open een bewerkbaar dashboard, kies **Bewerken → Kaart toevoegen → Handmatig** en plak:
 
    ```yaml
@@ -78,7 +78,7 @@ De tijdslotvelden zijn een formulier om een programma te schrijven. Controleer b
 
 ## Kaart voor elektriciteitstarieven
 
-Werk **Marstek by Diggit** via HACS bij naar 0.1.17 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.17.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
+Werk **Marstek by Diggit** via HACS bij naar 0.1.18 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.18.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
 
 ```yaml
 type: custom:marstek-diggit-tariffs-card
@@ -133,7 +133,7 @@ De standaardinstelling is simulatie. De actieve stand is geschikt voor twee beve
 
 De opstellingstest bevestigde op beide batterijen dat een rechtstreekse opdracht van 0 W na afloop in Passive op 0 W bleef. Op de woonkamerbatterij stopte ook een laadopdracht van 300 W na 60 seconden zelfstandig op Passive 0 W. De test liet Home Assistant online en sloeg zijn automatische herstelopdracht over. Een werkelijke netwerkonderbreking en herstart van de batterijen vragen nog validatie.
 
-Vanaf 0.1.17 schakelt de actieve planner tijdens piek over op SelfConsumption zodra de Smappee-sensor bevestigt dat de auto niet laadt. Energieherkomst blijft zichtbaar als diagnostiek. Bij een actieve of onbetrouwbare laadpaalmeting schakelt hij over naar Passive 0 W, of gebruikt hij gemeten zonneoverschot zonder te ontladen. Als Home Assistant de verbinding verliest terwijl een batterij al in Auto staat, kan hij de batterij geen ontlaadstop bezorgen. De [Marstek Local Open API](https://static-eu.marstekcloud.com/ems/resource/agreement/MarstekDeviceOpenApi.pdf) beschrijft geen begrensde Auto-opdracht.
+Vanaf 0.1.18 schakelt de actieve planner tijdens piek over op SelfConsumption zodra de Smappee-sensor bevestigt dat de auto niet laadt. Energieherkomst blijft zichtbaar als diagnostiek. Bij een actieve of onbetrouwbare laadpaalmeting schakelt hij over naar Passive 0 W, of gebruikt hij gemeten zonneoverschot zonder te ontladen. Als Home Assistant de verbinding verliest terwijl een batterij al in Auto staat, kan hij de batterij geen ontlaadstop bezorgen. De [Marstek Local Open API](https://static-eu.marstekcloud.com/ems/resource/agreement/MarstekDeviceOpenApi.pdf) beschrijft geen begrensde Auto-opdracht.
 
 Schakel andere automatiseringen en tijdsloten voor beide batterijen eerst uit wanneer je bewust overstapt op de actieve regeling. Laat eerdere Passive-opdrachten aflopen. Zet daarna op de kaart **Planner inschakelen** aan en vink **Simulatiemodus** uit. De actieve planner reserveert beide batterij-items voor eigen opdrachten via de integratie. Bij uitschakelen zet de planner de batterijen eerst op Passive 0 W. Zet ze daarna desgewenst zelf terug op Auto en schakel je eerdere automatisering weer in.
 

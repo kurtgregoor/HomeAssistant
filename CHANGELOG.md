@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.18
+
+- Pace Auto mode writes on V151 and check actual mode after a missing acknowledgement before trying again.
+- Add a compact battery summary card with an inline refresh action.
+
 ## 0.1.17
 
 - Use SelfConsumption during peak hours when the EV charger is confirmed idle. Withdraw Auto on charging or an unavailable charger reading.

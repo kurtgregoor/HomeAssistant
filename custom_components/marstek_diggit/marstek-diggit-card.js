@@ -1,5 +1,5 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.17";
+const CARD_VERSION = "0.1.18";
 const STATUS_REFRESH_MS = 30000;
 
 function formatBatteryActivity(value) {
@@ -934,4 +934,99 @@ if (!customElements.get("marstek-diggit-energy-planner-card")) {
     type: "marstek-diggit-energy-planner-card", name: "Marstek Energy Planner",
     description: "Simuleer de tariefregeling voor twee Marstek-batterijen.",
   });
+}
+
+class MarstekBatterySummaryCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.shadowRoot.innerHTML = `
+      <style>
+        ha-card { padding: 16px; display: grid; gap: 12px; }
+        header { display: flex; align-items: center; gap: 8px; }
+        h2, dl, dd, p { margin: 0; }
+        h2 { font-size: 1.22rem; }
+        button {
+          display:grid; place-items:center; width: 36px; height: 36px;
+          border: 1px solid var(--divider-color); border-radius: 9px;
+          background: transparent; color: var(--primary-color); cursor: pointer;
+        }
+        button:disabled { opacity: .55; cursor: wait; }
+        dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+        dt, p { color: var(--secondary-text-color); font-size: .83rem; overflow-wrap: anywhere; }
+        dd { margin-top: 4px; font-weight: 600; overflow-wrap: anywhere; }
+        progress { width: 100%; height: 8px; accent-color: var(--primary-color); }
+        p:empty { display: none; }
+      </style>
+      <ha-card>
+        <header><h2></h2><button type="button" aria-label="Vernieuwen" title="Vernieuwen">
+          <ha-icon icon="mdi:refresh"></ha-icon></button></header>
+        <dl>
+          <div><dt>Laadniveau</dt><dd id="soc"></dd></div>
+          <div><dt>Huidige modus</dt><dd id="mode"></dd></div>
+          <div><dt>Actueel vermogen</dt><dd id="power"></dd></div>
+        </dl>
+        <progress max="100" aria-label="Laadniveau"></progress>
+        <p role="status"></p>
+      </ha-card>`;
+    this.find("button").addEventListener("click", () => this.refresh());
+  }
+  find(selector) { return this.shadowRoot.querySelector(selector); }
+
+  setConfig(config) {
+    if (!config.status_entity || !config.config_entry_id) {
+      throw new Error("Configureer status_entity en config_entry_id.");
+    }
+    this.config = config;
+    this.find("h2").textContent = config.name || "Batterij";
+    this.find("button").setAttribute("aria-label", `Vernieuwen · ${this.find("h2").textContent}`);
+    this.render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this.render();
+  }
+
+  render() {
+    if (!this.config || !this._hass) return;
+    const entity = this._hass.states[this.config.status_entity];
+    const hasReading = entity && !["unknown", "unavailable"].includes(entity.state);
+    const latest = this.direct && this.direct.timestamp > Date.parse(entity?.last_updated || 0)
+      ? this.direct : null;
+    const values = latest || (hasReading
+      ? { soc: entity.attributes.laadniveau, mode: entity.attributes.modus, power: entity.state } : {});
+    const knownSoc = values.soc != null && Number.isFinite(Number(values.soc));
+    this.find("#soc").textContent = knownSoc ? `${Math.round(Number(values.soc))}%` : "Onbekend";
+    this.find("#mode").textContent = values.mode || "Onbekend";
+    this.find("#power").textContent = formatBatteryActivity(values.power);
+    const progress = this.find("progress");
+    progress.hidden = !knownSoc;
+    if (knownSoc) progress.value = Math.min(100, Math.max(0, Number(values.soc)));
+  }
+
+  async refresh() {
+    const button = this.find("button");
+    const message = this.find("p");
+    button.disabled = true;
+    message.textContent = "Status ophalen…";
+    try {
+      const result = await this._hass.callWS({
+        type: "call_service", domain: DOMAIN, service: "get_status", return_response: true,
+        service_data: { config_entry_id: this.config.config_entry_id },
+      });
+      const status = result.response;
+      this.direct = { soc: status.bat_soc, mode: status.mode,
+        power: status.ongrid_power, timestamp: Date.now() };
+      this.render();
+      message.textContent = "";
+    } catch (error) {
+      message.textContent = error.message || String(error);
+    } finally {
+      button.disabled = false;
+    }
+  }
+}
+if (!customElements.get("marstek-diggit-battery-summary-card")) {
+  customElements.define("marstek-diggit-battery-summary-card", MarstekBatterySummaryCard);
 }

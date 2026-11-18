@@ -325,19 +325,26 @@ class EnergyController:
         if any(b.mode == "Passive" and abs(b.watts) > 20 for b in states):
             await self.apply(ids, (0, 0))
         await self.verify_firmware(ids)
+        failures = []
         for index, (entry, observed) in enumerate(zip(ids, states)):
-            battery = self.hass.data[self.domain].get(entry)
-            if battery is None:
-                raise MarstekError("Geconfigureerde batterij ontbreekt.")
             if not self.auto_allowed():
                 await self.apply(ids, (0, 0))
                 return
-            if not await battery.set_energy_auto(self.auto_allowed):
-                await self.apply(ids, (0, 0))
-                return
-            if observed.mode != "Auto":
+            if observed.mode == "Auto":
+                continue
+            battery = self.hass.data[self.domain].get(entry)
+            try:
+                if battery is None:
+                    raise MarstekError("Geconfigureerde batterij ontbreekt.")
+                if not await battery.set_energy_auto(self.auto_allowed):
+                    await self.apply(ids, (0, 0))
+                    return
                 self.last_command = f"{dt_util.now().isoformat()} · batterij {index + 1} · Auto"
-            self.leases.pop(entry, None)
+                self.leases.pop(entry, None)
+            except (MarstekError, OSError) as exc:
+                failures.append(f"Batterij {index + 1} · {exc}")
+        if failures:
+            raise MarstekError("; ".join(failures))
 
     def live_budget(self, tariff, limit, batteries, original_grid, power, status):
         now = dt_util.now()

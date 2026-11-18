@@ -101,6 +101,7 @@ async def async_setup(hass, config):
         StaticPathConfig("/marstek_diggit/dashboard-0.1.15.js", card_file, False),
         StaticPathConfig("/marstek_diggit/dashboard-0.1.16.js", card_file, False),
         StaticPathConfig("/marstek_diggit/dashboard-0.1.17.js", card_file, False),
+        StaticPathConfig("/marstek_diggit/dashboard-0.1.18.js", card_file, False),
     ])
 
     async def handle(call):

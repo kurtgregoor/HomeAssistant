@@ -182,6 +182,33 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         client.set_passive.assert_awaited_once_with(-300, 60, "Auto")
         store.async_save.assert_not_called()
 
+    async def test_auto_confirms_after_lost_acknowledgement_without_duplicate_write(self):
+        from custom_components.marstek_diggit.passive import PassiveControl
+
+        client = SimpleNamespace(get_status=AsyncMock(side_effect=[
+                {"mode": "Passive", "ongrid_power": 0},
+                {"mode": "Auto", "ongrid_power": 500},
+            ]),
+            set_mode=AsyncMock(side_effect=MarstekNoResponse("geen bevestiging")),
+        )
+        control = PassiveControl(self.hass, client, SimpleNamespace(), "first")
+        with patch("custom_components.marstek_diggit.passive.sleep", AsyncMock()):
+            self.assertTrue(await control.set_energy_auto(lambda: True))
+        client.set_mode.assert_awaited_once_with("Auto")
+
+    async def test_auto_retries_if_fresh_read_confirms_still_passive(self):
+        from custom_components.marstek_diggit.passive import PassiveControl
+
+        passive = {"mode": "Passive", "ongrid_power": 0}
+        client = SimpleNamespace(
+            get_status=AsyncMock(side_effect=[passive, passive, {"mode": "Auto"}]),
+            set_mode=AsyncMock(side_effect=[MarstekNoResponse("geen bevestiging"), None]),
+        )
+        control = PassiveControl(self.hass, client, SimpleNamespace(), "first")
+        with patch("custom_components.marstek_diggit.passive.sleep", AsyncMock()):
+            self.assertTrue(await control.set_energy_auto(lambda: True))
+        self.assertEqual(client.set_mode.await_count, 2)
+
     async def test_ev_hysteresis_and_stale_sensor(self):
         controller = EnergyController(self.hass, DOMAIN, AsyncMock())
         controller.config["ev_sensor"] = "sensor.smappee"
