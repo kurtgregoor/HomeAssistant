@@ -123,14 +123,20 @@ class PassiveControl:
             if mode not in ("Auto", "Passive"):
                 raise MarstekError(f"Energy Planner kan modus {mode} niet overnemen.")
             sent_at = await self.client.set_passive(power, 60, mode)
-            await sleep(1.2)
-            observed = await self.client.get_status()
-            watts = observed.get("ongrid_power")
-            if observed["mode"] != "Passive" or not isinstance(watts, (int, float)) or not isfinite(watts) or (
-                abs(watts) > 20 if power == 0 else not power - 100 <= watts <= -20
-            ):
-                raise MarstekError("Passive-opdracht niet bevestigd door modus en vermogen.")
-            return sent_at
+            # V151 acknowledges a setpoint before the inverter ramps.
+            for delay in (3.5, 2):
+                await sleep(delay)
+                try:
+                    observed = await self.client.get_status()
+                except MarstekError:
+                    continue
+                watts = observed.get("ongrid_power")
+                if (observed["mode"] == "Passive" and isinstance(watts, (int, float))
+                        and isfinite(watts) and (
+                            abs(watts) <= 20 if power == 0 else power - 100 <= watts <= -20
+                        )):
+                    return sent_at
+            raise MarstekError("Passive-opdracht niet bevestigd door modus en vermogen.")
 
     async def set_mode(self, mode):
         async with self._lock:
