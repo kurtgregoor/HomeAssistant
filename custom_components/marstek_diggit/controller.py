@@ -17,7 +17,7 @@ from homeassistant.util import dt as dt_util
 
 from .client import MarstekError
 from .energy import (
-    CAPACITY_WH, Battery, Quarter, account_measurement, charge_hold_only, decide, learning, number,
+    CAPACITY_WH, Battery, Quarter, account_measurement, decide, learning, number,
     plan_24h, tariff_at,
 )
 
@@ -25,7 +25,7 @@ DEFAULTS = {
     "enabled": False, "simulation": True, "minimum_soc": 12, "grid_limit": 4500,
     "interval_minutes": 10, "max_charge": 2500, "safety_margin": 15,
     "learning_days": 30, "shadow_days": 14, "learning_active": False,
-    "max_sensor_age": 120,
+    "max_sensor_age": 120, "peak_auto": True,
 }
 SENSORS = ("p1_sensor", "ev_sensor", "solar_sensor", "forecast_sensor", "quarter_energy_sensor")
 
@@ -314,6 +314,31 @@ class EnergyController:
         if failures:
             raise MarstekError("; ".join(failures))
 
+    def auto_allowed(self):
+        now = dt_util.now()
+        return tariff_at(now, self.last_live_schedule) == "peak" and self.read_ev(now) is False
+
+    async def apply_auto(self, ids, states):
+        if not self.auto_allowed():
+            await self.apply(ids, (0, 0))
+            return
+        if any(b.mode == "Passive" and abs(b.watts) > 20 for b in states):
+            await self.apply(ids, (0, 0))
+        await self.verify_firmware(ids)
+        for index, (entry, observed) in enumerate(zip(ids, states)):
+            battery = self.hass.data[self.domain].get(entry)
+            if battery is None:
+                raise MarstekError("Geconfigureerde batterij ontbreekt.")
+            if not self.auto_allowed():
+                await self.apply(ids, (0, 0))
+                return
+            if not await battery.set_energy_auto(self.auto_allowed):
+                await self.apply(ids, (0, 0))
+                return
+            if observed.mode != "Auto":
+                self.last_command = f"{dt_util.now().isoformat()} · batterij {index + 1} · Auto"
+            self.leases.pop(entry, None)
+
     def live_budget(self, tariff, limit, batteries, original_grid, power, status):
         now = dt_util.now()
         if not 0 <= (now - self.live_sample_at).total_seconds() <= 15:
@@ -391,14 +416,16 @@ class EnergyController:
             ledgers = tuple(self.ledgers.get(entry, {}) for entry in ids)
             decision = decide(tariff, prices, self.batteries, ledgers, grid, ev,
                               quarter["allowed_w"], forecast["applied_target"],
-                              config["minimum_soc"], config["max_charge"])
+                              config["minimum_soc"], config["max_charge"], peak_auto=config["peak_auto"])
             if not config["simulation"]:
-                decision = charge_hold_only(decision)
                 self.live_sample_at = now
                 self.last_live_schedule = schedule
                 guard = partial(self.live_budget, tariff, quarter["allowed_w"], self.batteries, grid)
                 try:
-                    await self.apply(ids, decision.watts, guard)
+                    if decision.mode == "SELF_CONSUMPTION":
+                        await self.apply_auto(ids, self.batteries)
+                    elif not (tariff == "peak" and ev is False and "telemetrie" in decision.blocks):
+                        await self.apply(ids, decision.watts, guard)
                     self.command_error = None
                 except (MarstekError, OSError) as exc:
                     self.command_error = str(exc)
@@ -426,13 +453,13 @@ class EnergyController:
                 "available_wh": round(sum(max(0, b.soc - config["minimum_soc"]) * CAPACITY_WH / 100
                                           for b in self.batteries if b)),
                 "quarter": quarter, "learning": forecast, "plan": plan, "ledgers": self.ledgers,
-                "execution": "simulation" if config["simulation"] else "charge_and_hold",
+                "execution": "simulation" if config["simulation"] else "active",
                 "last_successful_command": self.last_command,
                 "error": self.command_error,
                 "last_simulated_change": self.last_change,
                 "observed_modes": [battery.mode if battery else None for battery in self.batteries],
                 "blocked_execution": ("Simulatie" if config["simulation"]
-                                      else "Laden en vasthouden actief · Auto geblokkeerd"),
+                                      else "Auto tijdens piek zonder autoladen"),
                 "next_action": next((row for row in plan[1:] if row["mode"] != decision.mode), None),
                 "superdal_shortfall": next((
                     row["soc"] for i, row in enumerate(plan)

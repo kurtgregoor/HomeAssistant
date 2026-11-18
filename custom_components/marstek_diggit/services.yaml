@@ -144,7 +144,7 @@ get_energy_plan:
   description: Lees de gesimuleerde beslissing, kwartierbewaking en 24-uursplanning.
 configure_energy_controller:
   name: Configureer de Energy Planner
-  description: Configureer de planner vanaf de dashboardkaart of met deze actie in YAML. Actieve sturing op V151 kan laden en vasthouden.
+  description: Configureer de planner vanaf de dashboardkaart of met deze actie in YAML. Actieve sturing op V151 gebruikt Auto tijdens piek als de wagen niet laadt.
   fields:
     enabled:
       name: Planner inschakelen

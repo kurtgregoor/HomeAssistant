@@ -138,6 +138,31 @@ class PassiveControl:
                     return sent_at
             raise MarstekError("Passive-opdracht niet bevestigd door modus en vermogen.")
 
+    async def set_energy_auto(self, still_allowed):
+        async with self._lock:
+            self._ensure_loaded()
+            if self._pending:
+                raise MarstekError("Wacht tot de bestaande Passive-opdracht is afgelopen.")
+            status = await self.client.get_status()
+            if not still_allowed():
+                return False
+            if status["mode"] == "Auto":
+                return True
+            watts = status.get("ongrid_power")
+            if status["mode"] != "Passive" or not isinstance(watts, (int, float)) or abs(watts) > 20:
+                raise MarstekError("Bevestig eerst Passive 0 W vóór Auto.")
+            await self.client.set_mode("Auto")
+            for delay in (1.2, 2):
+                await sleep(delay)
+                if not still_allowed():
+                    return False
+                try:
+                    if (await self.client.get_status())["mode"] == "Auto":
+                        return True
+                except MarstekError:
+                    continue
+            raise MarstekError("Auto niet bevestigd door de batterij.")
+
     async def set_mode(self, mode):
         async with self._lock:
             self._ensure_loaded()

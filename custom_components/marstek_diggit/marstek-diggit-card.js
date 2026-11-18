@@ -1,5 +1,5 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.16";
+const CARD_VERSION = "0.1.17";
 const STATUS_REFRESH_MS = 30000;
 
 function formatBatteryActivity(value) {
@@ -859,7 +859,7 @@ class MarstekEnergyPlannerCard extends HTMLElement {
     const { config, decision, quarter, learning, batteries, plan, error } = this.data;
     this.showError(error || (this.data.quarter_warning ? "Netafname al minstens 10 minuten boven de grens." : ""));
     this.shadowRoot.querySelector("#summary").textContent = config.enabled
-      ? (config.simulation ? "Simulatie · leest metingen en berekent voorstellen" : "Actief · laden en vasthouden")
+      ? (config.simulation ? "Simulatie · leest metingen en berekent voorstellen" : "Actief · Auto tijdens piek")
       : "Planner uitgeschakeld";
     for (const id of ["#diagnostics", "#metrics", "#timeline"]) this.shadowRoot.querySelector(id).hidden = !decision;
     if (!this.settingsLoaded) {

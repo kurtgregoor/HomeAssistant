@@ -74,6 +74,13 @@ class Rules(unittest.TestCase):
             prices = {**PRICES, "offpeak": PRICES["peak"]}
             self.assertEqual(decision("peak", ledgers=(ledgers, {"solar": 50}), prices=prices).mode, "HOLDING")
 
+    def test_peak_auto_policy_depends_on_confirmed_ev_idle(self):
+        options = {"peak_auto": True, "ledgers": ({"unknown": 100}, {"peak": 100})}
+        self.assertEqual(decision("peak", **options, grid=None).mode, "SELF_CONSUMPTION")
+        self.assertEqual(decision("peak", **options, ev=True).mode, "HOLDING")
+        self.assertEqual(decision("peak", **options, ev=None).mode, "SAFE_FALLBACK")
+        self.assertEqual(decision("offpeak", **options, ev=False).mode, "CHARGING")
+
     def test_fallbacks(self):
         for changes in ({"grid": None}, {"ev": None}, {"batteries": (FIRST, None)}):
             self.assertEqual(decision("peak", **changes).mode, "SAFE_FALLBACK")

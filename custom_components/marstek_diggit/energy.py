@@ -141,16 +141,13 @@ class Decision:
     blocks: tuple = ()
 
 
-def charge_hold_only(decision):
-    if decision.mode != "SELF_CONSUMPTION":
-        return decision
-    return replace(decision, mode="HOLDING", watts=(0, 0),
-                   reason="Auto blijft geblokkeerd bij ontbrekende lokale ontlaadvergrendeling",
-                   blocks=(*decision.blocks, "Auto bij verbindingsuitval"))
-
-
-def decide(tariff, prices, batteries, ledgers, grid, ev, margin, target, minimum, max_charge=2500):
+def decide(tariff, prices, batteries, ledgers, grid, ev, margin, target, minimum,
+           max_charge=2500, *, peak_auto=False):
     target = target if tariff == "offpeak" else 100
+    if peak_auto and tariff == "peak" and ev is False:
+        if len(batteries) == 2 and all(battery is not None for battery in batteries):
+            return Decision("SELF_CONSUMPTION", target, (None, None), "Piek en wagen laadt niet")
+        return Decision("SAFE_FALLBACK", target, (0, 0), "Batterijmodus niet bevestigd", ("telemetrie",))
     if grid is None or ev is None or len(batteries) != 2 or any(battery is None for battery in batteries):
         return Decision("SAFE_FALLBACK", target, (0, 0), "Kritieke meting of modus ontbreekt",
                         ("telemetrie",))
@@ -286,9 +283,8 @@ def plan_24h(now, schedule, prices, batteries, ledgers, ev, household, solar, fo
         grid = max(0, demand) - (pv or 0) if demand is not None else None
         assumed_ev = ev if (current - now.astimezone(timezone.utc)).total_seconds() < settings["interval_minutes"] * 60 else False
         decision = decide(tariff, prices, batteries, ledgers, grid, assumed_ev,
-                          settings["grid_limit"], target, settings["minimum_soc"], settings["max_charge"])
-        if not settings.get("simulation", True):
-            decision = charge_hold_only(decision)
+                          settings["grid_limit"], target, settings["minimum_soc"], settings["max_charge"],
+                          peak_auto=settings.get("peak_auto", False))
         if all(batteries):
             batteries = tuple(replace(b, soc=min(decision.target, b.soc + max(0, -(w or 0)) * duration *
                                                   CHARGE_EFFICIENCY * 100 / CAPACITY_WH))
@@ -299,11 +295,11 @@ def plan_24h(now, schedule, prices, batteries, ledgers, ev, household, solar, fo
                     ledgers[i] = reconcile_energy(
                         ledgers[i], battery.soc * CAPACITY_WH / 100, source,
                         -watts * duration * CHARGE_EFFICIENCY)
-            if decision.mode == "SELF_CONSUMPTION" and grid > 0:
+            if decision.mode == "SELF_CONSUMPTION" and grid is not None and grid > 0:
                 # Only a system-level estimate. CT003 owns the real split.
                 usable = [max(0, b.soc - settings["minimum_soc"]) for b in batteries]
                 required = grid * duration * 100 / (CAPACITY_WH * DISCHARGE_EFFICIENCY)
-                fraction = min(1, required / sum(usable))
+                fraction = min(1, required / sum(usable)) if sum(usable) else 0
                 batteries = tuple(replace(b, soc=b.soc - spare * fraction) for b, spare in zip(batteries, usable))
                 for i, battery in enumerate(batteries):
                     ledgers[i] = reconcile_energy(ledgers[i], battery.soc * CAPACITY_WH / 100)

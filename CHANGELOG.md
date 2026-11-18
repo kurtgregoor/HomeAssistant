@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.17
+
+- Use SelfConsumption during peak hours when the EV charger is confirmed idle. Withdraw Auto on charging or an unavailable charger reading.
+
 ## 0.1.16
 
 - Added opt-in charging and holding for verified Venus E 3.0 firmware V151. The controller confirms the second battery is idle before starting a bounded charging command without automatic Auto restore.

@@ -49,6 +49,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
             set_mode=AsyncMock(),
             set_passive=AsyncMock(),
             set_energy_power=AsyncMock(),
+            set_energy_auto=AsyncMock(return_value=True),
             client=SimpleNamespace(get_device_info=AsyncMock(return_value={
                 "model": "VenusE 3.0", "firmware": 151,
             }), get_energy_counters=AsyncMock(return_value={
@@ -143,6 +144,18 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(operations[-1], (0, 0))
         self.first.set_mode.assert_not_called()
         self.second.set_mode.assert_not_called()
+
+    async def test_auto_is_withdrawn_if_ev_starts_between_batteries(self):
+        from custom_components.marstek_diggit.energy import Battery
+
+        controller = EnergyController(self.hass, DOMAIN, AsyncMock())
+        controller.auto_allowed = lambda: True
+        self.first.set_energy_auto.return_value = False
+        controller.apply = AsyncMock()
+        await controller.apply_auto(["first", "second"], (Battery(100, 0, "Passive"), Battery(99, 0, "Passive")))
+        self.first.set_energy_auto.assert_awaited_once()
+        self.second.set_energy_auto.assert_not_called()
+        controller.apply.assert_awaited_once_with(["first", "second"], (0, 0))
 
     async def test_unconfirmed_hold_blocks_live_charge(self):
         controller = EnergyController(self.hass, DOMAIN, AsyncMock())
