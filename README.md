@@ -1,6 +1,6 @@
 # Marstek by Diggit voor Home Assistant
 
-Versie 0.1.15. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
+Versie 0.1.16. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
 
 ## Installatie via HACS
 
@@ -63,7 +63,7 @@ Voor Venus D en Venus E 3.0 is de ingebouwde Peak Shaving toegevoegd in controlf
 Vanaf versie 0.1.3 levert de integratie zelf de JavaScript-kaart. De integratie moet geladen zijn voordat de bron beschikbaar is.
 
 1. Ga naar **Instellingen → Dashboards → ⋮ → Bronnen**. Zet zo nodig **Geavanceerde modus** aan in je gebruikersprofiel.
-2. Voeg `/marstek_diggit/dashboard-0.1.15.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
+2. Voeg `/marstek_diggit/dashboard-0.1.16.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
 3. Open een bewerkbaar dashboard, kies **Bewerken → Kaart toevoegen → Handmatig** en plak:
 
    ```yaml
@@ -78,7 +78,7 @@ De tijdslotvelden zijn een formulier om een programma te schrijven. Controleer b
 
 ## Kaart voor elektriciteitstarieven
 
-Werk **Marstek by Diggit** via HACS bij naar 0.1.15 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.15.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
+Werk **Marstek by Diggit** via HACS bij naar 0.1.16 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.16.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
 
 ```yaml
 type: custom:marstek-diggit-tariffs-card
@@ -94,9 +94,7 @@ De kleurmarkering **Nu** volgt het geldende tarief in de tijdzone van Home Assis
 
 ## Energy Planner voor twee batterijen
 
-Versie 0.1.15 voegt een planner toe die jouw metingen en tarieven gebruikt.
-De planner staat standaard uit. Na inschakelen draait hij in simulatiemodus.
-De bestaande tijdslotprogrammatie kan tijdens de vergelijking blijven draaien.
+De Energy Planner gebruikt jouw metingen en tarieven. Hij staat standaard uit en start na inschakelen in simulatie zolang die instelling aangevinkt blijft. Tijdens de simulatie kan de bestaande tijdslotprogrammatie blijven draaien.
 
 1. Voeg in de dashboardeditor **Marstek Energy Planner** toe met dezelfde JavaScript-bron als de batterij- en tariefkaart.
 
@@ -129,11 +127,15 @@ Bij ontbrekende voorspellingen projecteert de planner zonder toekomstige PV-bijd
 - De energiebalans registreert per batterij superdal-, dal- en piekenergie, zonne-energie en onbekende energie. De berekening combineert SoC, de batterijzijdige Wh-tellers uit `ES.GetStatus`, P1 en PV. Ze rekent met 90% laad- en 90% ontlaadefficiëntie. Een positief P1-signaal zonder PV of een negatief P1-signaal met PV kan bij overeenstemmende batterijtellers laadherkomst onderbouwen. Gemengde of gemiste intervallen blijven onzeker. Onzekere energie, gewijzigde prijzen of een onderbreking kunnen ontlading blokkeren. De planner trekt bij dalende SoC proportioneel uit de administratieve bakken, omdat firmware geen laadherkomst selecteert.
 - Het leerproces gebruikt minimaal 30 geldige meetdagen en vervolgens minimaal 14 geldige schaduwdagen. De schaduwmodus toont voorspelling en gemeten avondverbruik, terwijl het laadvoorstel op 100% blijft. De instelling **Lerende doel-SoC toestaan** kan pas na beide fases een lager simulatievoorstel geven voor dal. Superdal behoudt een doel van 100%. De recentste vergelijkbare dagen wegen zwaarder. Standaard is de extra marge 15%.
 
-### Firmwarevalidatie vóór actieve sturing
+### Actief laden en vasthouden op V151
 
-De [Marstek Local Open API](https://static-eu.marstekcloud.com/ems/resource/agreement/MarstekDeviceOpenApi.pdf) beschrijft Passive met een afteltijd en Auto met slimme meter. Ze beschrijft geen blijvende, fail-closed ontlaadblokkering zonder tijdsloten voor deze combinatie. De bestaande integratie herstelt bovendien de vorige modus wanneer haar Passive-opdracht verloopt. Bij een uitval van Home Assistant of het netwerk kan de planner dat herstel niet bewaken. De nieuwe planner verzendt daarom geen modus- of vermogenscommando's en weigert `simulation: false`.
+De standaardinstelling is simulatie. De actieve stand schakelt alleen laden en vasthouden in voor twee bevestigde Venus E 3.0-batterijen op firmware V151. De planner houdt de tweede batterij aantoonbaar stil voordat hij de andere laat laden. Hij leest P1 en de laadpaal opnieuw vóór de laadopdracht. Iedere laadopdracht duurt maximaal 60 seconden. De planner vernieuwt zo nodig de actieve opdracht vóór de afloop en plant geen herstel naar Auto in.
 
-Marstek vermeldt [CT003-ondersteuning voor meerdere toestellen](https://marstekenergy.com/products/marstek-venus-e-gen-3). Verifieer de echte verdeling met beide Venus E 3-batterijen op firmware V151. Controleer ook het teken en de eenheid van beide tellers, Passive 0 W tijdens een afloop en herstart, Auto-herstel, het gedrag bij één onbereikbare batterij en zonne-overschot tijdens autoladen. Gebruik pas na een bevestigd veilig herstelpad actieve aansturing. Voor deze simulatierelease zijn geen wijzigingen aan de tariefkaart, de firmware of de bestaande automatisering vereist.
+De opstellingstest bevestigde op beide batterijen dat een rechtstreekse opdracht van 0 W na afloop in Passive op 0 W bleef. Op de woonkamerbatterij stopte ook een laadopdracht van 300 W na 60 seconden zelfstandig op Passive 0 W. De test liet Home Assistant online en sloeg zijn automatische herstelopdracht over. Een werkelijke netwerkonderbreking en herstart van de batterijen vragen nog validatie.
+
+Auto-ontlading blijft in de actieve stand geblokkeerd. Als de batterij eenmaal in Auto staat, kan Home Assistant tijdens netwerkuitval een ontlaadblokkering bij bijvoorbeeld EV-start niet doorgeven. De [Marstek Local Open API](https://static-eu.marstekcloud.com/ems/resource/agreement/MarstekDeviceOpenApi.pdf) beschrijft geen lokaal interlock of begrensde Auto-opdracht. De simulator kan de gewenste ontlaadperioden blijven tonen.
+
+Schakel andere automatiseringen en tijdsloten voor beide batterijen eerst uit wanneer je bewust overstapt op actief laden en vasthouden. Laat eerdere Passive-opdrachten aflopen. Zet daarna op de kaart **Planner inschakelen** aan en vink **Simulatiemodus** uit. De actieve planner reserveert beide batterij-items voor eigen opdrachten via de integratie. Bij uitschakelen zet de planner de batterijen eerst op Passive 0 W. Zet ze daarna desgewenst zelf terug op Auto en schakel je eerdere automatisering weer in.
 
 De automatische tests gebruiken nagebootste batterijantwoorden en geen netwerk- of batterijcommando's.
 

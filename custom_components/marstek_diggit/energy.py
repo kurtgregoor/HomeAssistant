@@ -141,6 +141,14 @@ class Decision:
     blocks: tuple = ()
 
 
+def charge_hold_only(decision):
+    if decision.mode != "SELF_CONSUMPTION":
+        return decision
+    return replace(decision, mode="HOLDING", watts=(0, 0),
+                   reason="Auto blijft geblokkeerd bij ontbrekende lokale ontlaadvergrendeling",
+                   blocks=(*decision.blocks, "Auto bij verbindingsuitval"))
+
+
 def decide(tariff, prices, batteries, ledgers, grid, ev, margin, target, minimum, max_charge=2500):
     target = target if tariff == "offpeak" else 100
     if grid is None or ev is None or len(batteries) != 2 or any(battery is None for battery in batteries):
@@ -279,6 +287,8 @@ def plan_24h(now, schedule, prices, batteries, ledgers, ev, household, solar, fo
         assumed_ev = ev if (current - now.astimezone(timezone.utc)).total_seconds() < settings["interval_minutes"] * 60 else False
         decision = decide(tariff, prices, batteries, ledgers, grid, assumed_ev,
                           settings["grid_limit"], target, settings["minimum_soc"], settings["max_charge"])
+        if not settings.get("simulation", True):
+            decision = charge_hold_only(decision)
         if all(batteries):
             batteries = tuple(replace(b, soc=min(decision.target, b.soc + max(0, -(w or 0)) * duration *
                                                   CHARGE_EFFICIENCY * 100 / CAPACITY_WH))

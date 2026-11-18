@@ -1,8 +1,9 @@
 """Persist and restore a temporary Passive command for one config entry."""
 
-from asyncio import Lock
+from asyncio import Lock, sleep
 from datetime import datetime, timedelta, timezone
 import logging
+from math import isfinite
 
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.storage import Store
@@ -108,6 +109,28 @@ class PassiveControl:
             confirmed = {**pending, "ends_at": deadline.isoformat()}
             await self._store.async_save(confirmed)
             self._set_pending(confirmed)
+
+    async def set_energy_power(self, power):
+        """Take a bounded charge lease or hold without scheduling legacy Auto restore."""
+        if not -2500 <= power <= 0:
+            raise MarstekError("Energy Planner accepteert alleen laden of 0 W.")
+        async with self._lock:
+            self._ensure_loaded()
+            if self._pending:
+                raise MarstekError("Wacht tot de bestaande Passive-opdracht is afgelopen.")
+            status = await self.client.get_status()
+            mode = status["mode"]
+            if mode not in ("Auto", "Passive"):
+                raise MarstekError(f"Energy Planner kan modus {mode} niet overnemen.")
+            sent_at = await self.client.set_passive(power, 60, mode)
+            await sleep(1.2)
+            observed = await self.client.get_status()
+            watts = observed.get("ongrid_power")
+            if observed["mode"] != "Passive" or not isinstance(watts, (int, float)) or not isfinite(watts) or (
+                abs(watts) > 20 if power == 0 else not power - 100 <= watts <= -20
+            ):
+                raise MarstekError("Passive-opdracht niet bevestigd door modus en vermogen.")
+            return sent_at
 
     async def set_mode(self, mode):
         async with self._lock:

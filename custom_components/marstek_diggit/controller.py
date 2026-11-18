@@ -17,7 +17,7 @@ from homeassistant.util import dt as dt_util
 
 from .client import MarstekError
 from .energy import (
-    CAPACITY_WH, Battery, Quarter, account_measurement, decide, learning, number,
+    CAPACITY_WH, Battery, Quarter, account_measurement, charge_hold_only, decide, learning, number,
     plan_24h, tariff_at,
 )
 
@@ -87,6 +87,10 @@ class EnergyController:
         self.battery_context = (None, None, None)
         self.last_intent = None
         self.last_change = None
+        self.verified_firmware = set()
+        self.leases = {}
+        self.last_command = None
+        self.command_error = None
 
     async def load(self):
         data = await self.store.async_load() or {}
@@ -137,7 +141,10 @@ class EnergyController:
                 if not self.next_event:
                     break
         except (HomeAssistantError, OSError, ValueError) as exc:
-            self.snapshot = {"error": str(exc), "decision": {"mode": "SAFE_FALLBACK"}}
+            self.snapshot = {**self.snapshot, "error": str(exc), "decision": {
+                "mode": "SAFE_FALLBACK", "reason": str(exc), "blocks": ["interne fout"],
+                "target": 100, "watts": (0, 0),
+            }}
 
     def state(self, key):
         entity = self.config.get(key)
@@ -256,6 +263,73 @@ class EnergyController:
                         and day.get("evening_covered", 0) >= 0.98 * 6 * 3600)
         self.history = [*self.history[-364:], day]
 
+    def owns(self, entry_id):
+        return (self.config["enabled"] and not self.config["simulation"]
+                and entry_id in self.config.get("battery_ids", []))
+
+    async def verify_firmware(self, ids):
+        for entry in ids:
+            if entry in self.verified_firmware:
+                continue
+            battery = self.hass.data[self.domain].get(entry)
+            if battery is None:
+                raise MarstekError("Geconfigureerde batterij ontbreekt.")
+            info = await battery.client.get_device_info()
+            model = str(info.get("model", "")).replace(" ", "").casefold()
+            if model != "venuse3.0" or str(info.get("firmware")) != "151":
+                raise MarstekError("Actieve sturing is getest voor Venus E 3.0 op firmware V151.")
+            self.verified_firmware.add(entry)
+
+    async def apply(self, ids, watts, before_charge=None):
+        """Hold the other battery first. Never send a positive setpoint or Auto."""
+        if (len(ids) != 2 or len(watts) != 2 or any(power > 0 for power in watts)
+                or sum(power < 0 for power in watts) > 1):
+            raise MarstekError("Ongeldig gezamenlijk laadvoorstel.")
+        await self.verify_firmware(ids)
+        failures = []
+        for index in sorted(range(2), key=lambda i: watts[i] < 0):
+            entry, power = ids[index], watts[index]
+            battery = self.hass.data[self.domain].get(entry)
+            try:
+                if battery is None:
+                    raise MarstekError("Geconfigureerde batterij ontbreekt.")
+                status = Battery.from_status(await battery.get_status())
+                if status is None:
+                    raise MarstekError("Batterijstatus ontbreekt of modus is niet bevestigd.")
+                if power < 0:
+                    power = 0 if failures or before_charge is None else before_charge(power, status)
+                lease = self.leases.get(entry)
+                if power == 0 and status.mode == "Passive" and abs(status.watts) <= 20:
+                    self.leases.pop(entry, None)
+                    continue
+                if power < 0 and lease and lease[0] == power and (
+                    dt_util.utcnow() - lease[1]
+                ).total_seconds() < 40 and status.mode == "Passive" and status.watts < -20:
+                    continue
+                sent_at = await battery.set_energy_power(power)
+                self.leases[entry] = (power, sent_at)
+                self.last_command = f"{dt_util.as_local(sent_at).isoformat()} · batterij {index + 1} · {power} W"
+            except (MarstekError, OSError) as exc:
+                failures.append(f"Batterij {index + 1} · {exc}")
+        if failures:
+            raise MarstekError("; ".join(failures))
+
+    def live_budget(self, tariff, limit, batteries, original_grid, power, status):
+        now = dt_util.now()
+        if not 0 <= (now - self.live_sample_at).total_seconds() <= 15:
+            return 0
+        grid = self.watts("p1_sensor", now)
+        ev = self.read_ev(now)
+        if grid is None or ev is None or tariff_at(now, self.last_live_schedule) != tariff:
+            return 0
+        # The other battery was confirmed idle before reaching this guard.
+        base = max(grid + status.watts, original_grid + sum(b.watts for b in batteries))
+        budget = limit - base - 200
+        if ev or tariff == "peak" or tariff_at(now + timedelta(seconds=65), self.last_live_schedule) != tariff:
+            budget = min(budget, -base - 100)
+        available = max(0, int(budget // 50) * 50)
+        return -min(-power, available) if available >= 100 else 0
+
     async def evaluate(self):
         async with self.lock:
             config = self.config
@@ -318,11 +392,21 @@ class EnergyController:
             decision = decide(tariff, prices, self.batteries, ledgers, grid, ev,
                               quarter["allowed_w"], forecast["applied_target"],
                               config["minimum_soc"], config["max_charge"])
+            if not config["simulation"]:
+                decision = charge_hold_only(decision)
+                self.live_sample_at = now
+                self.last_live_schedule = schedule
+                guard = partial(self.live_budget, tariff, quarter["allowed_w"], self.batteries, grid)
+                try:
+                    await self.apply(ids, decision.watts, guard)
+                    self.command_error = None
+                except (MarstekError, OSError) as exc:
+                    self.command_error = str(exc)
             intent = (decision.mode, decision.watts)
             if intent != self.last_intent:
                 self.last_intent = intent
                 self.last_change = {"at": now.isoformat(), "mode": decision.mode,
-                                    "watts": decision.watts, "status": "simulated"}
+                                    "watts": decision.watts, "status": "simulated" if config["simulation"] else "planned"}
             plan = self.snapshot.get("plan", [])
             if due:
                 household = (max(0, grid + (pv or 0) + sum(b.watts for b in self.batteries)
@@ -342,10 +426,13 @@ class EnergyController:
                 "available_wh": round(sum(max(0, b.soc - config["minimum_soc"]) * CAPACITY_WH / 100
                                           for b in self.batteries if b)),
                 "quarter": quarter, "learning": forecast, "plan": plan, "ledgers": self.ledgers,
-                "execution": "simulation", "last_successful_command": None,
+                "execution": "simulation" if config["simulation"] else "charge_and_hold",
+                "last_successful_command": self.last_command,
+                "error": self.command_error,
                 "last_simulated_change": self.last_change,
                 "observed_modes": [battery.mode if battery else None for battery in self.batteries],
-                "blocked_execution": "Veilige Passive-afloop op V151 nog te valideren",
+                "blocked_execution": ("Simulatie" if config["simulation"]
+                                      else "Laden en vasthouden actief · Auto geblokkeerd"),
                 "next_action": next((row for row in plan[1:] if row["mode"] != decision.mode), None),
                 "superdal_shortfall": next((
                     row["soc"] for i, row in enumerate(plan)
@@ -365,8 +452,6 @@ class EnergyController:
             }
 
     async def configure(self, call):
-        if call.data.get("simulation") is False:
-            raise HomeAssistantError("Actieve sturing vereist verificatie van Passive-afloop op firmware V151.")
         async with self.lock:
             config = {**self.config, **call.data}
             ids = config.get("battery_ids", [])
@@ -375,6 +460,16 @@ class EnergyController:
                 or not config.get("p1_sensor") or not config.get("ev_sensor")
             ):
                 raise HomeAssistantError("Selecteer twee batterijen, een P1-sensor en een Smappee-sensor.")
+            old_ids = self.config.get("battery_ids", [])
+            old_live = self.config["enabled"] and not self.config["simulation"]
+            new_live = config["enabled"] and not config["simulation"]
+            try:
+                if new_live:
+                    await self.verify_firmware(ids)
+                if old_live and (not new_live or ids != old_ids):
+                    await self.apply(old_ids, (0, 0))
+            except (MarstekError, OSError) as exc:
+                raise HomeAssistantError(str(exc)) from exc
             if ids != self.config.get("battery_ids", []):
                 self.batteries = (None, None)
                 self.battery_at = None
@@ -390,9 +485,9 @@ class EnergyController:
                 self.battery_at = None
                 self.last_intent = self.last_change = None
                 self.quarter = Quarter()
+            await self.store.async_save({**self.data(), "config": config})
             self.config = config
             self.last_strategy = None
-            await self.store.async_save(self.data())
             self.subscribe()
 
     async def status(self, _call):

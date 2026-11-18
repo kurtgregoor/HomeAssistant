@@ -1,5 +1,5 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.15";
+const CARD_VERSION = "0.1.16";
 const STATUS_REFRESH_MS = 30000;
 
 function formatBatteryActivity(value) {
@@ -725,7 +725,7 @@ class MarstekEnergyPlannerCard extends HTMLElement {
             <fieldset></fieldset>
             <div class="checks">
               <label><input type="checkbox" name="enabled"> Planner inschakelen</label>
-              <label><input type="checkbox" name="simulation" checked disabled> Simulatiemodus</label>
+              <label><input type="checkbox" name="simulation" checked> Simulatiemodus</label>
               <label><input type="checkbox" name="learning_active"> Lerende doel-SoC toestaan</label>
             </div>
             <button type="submit">Instellingen opslaan</button>
@@ -851,6 +851,7 @@ class MarstekEnergyPlannerCard extends HTMLElement {
       fields.append(label);
     }
     form.elements.enabled.checked = config.enabled;
+    form.elements.simulation.checked = config.simulation;
     form.elements.learning_active.checked = config.learning_active;
   }
 
@@ -858,7 +859,7 @@ class MarstekEnergyPlannerCard extends HTMLElement {
     const { config, decision, quarter, learning, batteries, plan, error } = this.data;
     this.showError(error || (this.data.quarter_warning ? "Netafname al minstens 10 minuten boven de grens." : ""));
     this.shadowRoot.querySelector("#summary").textContent = config.enabled
-      ? "Simulatie · leest metingen en berekent voorstellen"
+      ? (config.simulation ? "Simulatie · leest metingen en berekent voorstellen" : "Actief · laden en vasthouden")
       : "Planner uitgeschakeld";
     for (const id of ["#diagnostics", "#metrics", "#timeline"]) this.shadowRoot.querySelector(id).hidden = !decision;
     if (!this.settingsLoaded) {
@@ -870,7 +871,7 @@ class MarstekEnergyPlannerCard extends HTMLElement {
       ["Voorstel", ENERGY_MODES[decision.mode]], ["Reden", decision.reason],
       ["Blokkeringen", decision.blocks.join(", ") || "Geen in de simulatie"],
       ["Uitvoering", this.data.blocked_execution],
-      ["Laatste opdracht", this.data.last_successful_command || "Geen · simulatie"],
+      ["Laatste opdracht", this.data.last_successful_command || "Geen"],
       ["Volgende actie", this.data.next_action ? `${ENERGY_MODES[this.data.next_action.mode]} · ${this.data.next_action.reason}` : "Geen wijziging gepland"],
       ["Superdal", this.data.superdal_shortfall ? `100% mogelijk niet haalbaar · ${this.data.superdal_shortfall.join("% / ")}%` : "Geen voorspeld tekort"],
     ]);
@@ -903,7 +904,7 @@ class MarstekEnergyPlannerCard extends HTMLElement {
     event.preventDefault();
     const submit = event.target.querySelector("button");
     const params = new FormData(event.target);
-    const data = { enabled: params.has("enabled"), learning_active: params.has("learning_active"), simulation: true };
+    const data = { enabled: params.has("enabled"), learning_active: params.has("learning_active"), simulation: params.has("simulation") };
     const batteries = [params.get("battery_0"), params.get("battery_1")];
     if (batteries.every(Boolean)) data.battery_ids = batteries;
     if (data.enabled && (!batteries.every(Boolean) || batteries[0] === batteries[1])) {

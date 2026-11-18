@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.16
+
+- Added opt-in charging and holding for verified Venus E 3.0 firmware V151. The controller confirms the second battery is idle before starting a bounded charging command without automatic Auto restore.
+- Kept Auto discharge blocked during active operation pending a battery-local interlock for connectivity loss.
+
 ## 0.1.15
 
 - Added an opt-in, read-only Energy Planner for two batteries. It reuses the tariff card and displays the 24-hour plan, simulated decisions, battery status and discharge blockers.
