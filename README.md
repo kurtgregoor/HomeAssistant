@@ -1,6 +1,6 @@
 # Marstek by Diggit voor Home Assistant
 
-Versie 0.1.14. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
+Versie 0.1.15. Deze integratie stuurt commando’s via de lokale Marstek Open API over UDP. De Diggit-server hoeft hiervoor niet te draaien.
 
 ## Installatie via HACS
 
@@ -63,7 +63,7 @@ Voor Venus D en Venus E 3.0 is de ingebouwde Peak Shaving toegevoegd in controlf
 Vanaf versie 0.1.3 levert de integratie zelf de JavaScript-kaart. De integratie moet geladen zijn voordat de bron beschikbaar is.
 
 1. Ga naar **Instellingen → Dashboards → ⋮ → Bronnen**. Zet zo nodig **Geavanceerde modus** aan in je gebruikersprofiel.
-2. Voeg `/marstek_diggit/dashboard-0.1.14.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
+2. Voeg `/marstek_diggit/dashboard-0.1.15.js` toe als **JavaScript-module**. Gebruik je de kaart al met een `/local/`-URL, wijzig dan die bron naar de nieuwe URL.
 3. Open een bewerkbaar dashboard, kies **Bewerken → Kaart toevoegen → Handmatig** en plak:
 
    ```yaml
@@ -78,7 +78,7 @@ De tijdslotvelden zijn een formulier om een programma te schrijven. Controleer b
 
 ## Kaart voor elektriciteitstarieven
 
-Werk **Marstek by Diggit** via HACS bij naar 0.1.14 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.14.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
+Werk **Marstek by Diggit** via HACS bij naar 0.1.15 en herstart Home Assistant. Bewerk bij **Instellingen → Dashboards → ⋮ → Bronnen** de bestaande Marstek-bron naar `/marstek_diggit/dashboard-0.1.15.js` en herlaad het dashboard. Voeg **Marstek elektriciteitstarieven** toe in de kaartkiezer of voeg handmatig toe:
 
 ```yaml
 type: custom:marstek-diggit-tariffs-card
@@ -91,3 +91,52 @@ Vul de drie prijzen in €/kWh in en geef per tarief de tijdvakken voor werkdage
 Vanaf 0.1.7 tonen beide kaarten een compact overzicht. Open **Tarieven en tijdvakken wijzigen** of **Tijdslot wijzigen** om het formulier te tonen. De programmatie toont vanaf deze versie slotwijzigingen die via de integratie zijn bevestigd. Eerder ingestelde tijdsloten en wijzigingen via de Marstek-app raadpleeg je in de Marstek-app.
 
 De kleurmarkering **Nu** volgt het geldende tarief in de tijdzone van Home Assistant. **Nu gepland** geeft aan dat een opgeslagen en ingeschakeld slot in zijn tijdvak zit. De actuele batterijmodus staat bovenaan de kaart.
+
+## Energy Planner voor twee batterijen
+
+Versie 0.1.15 voegt een planner toe die jouw metingen en tarieven gebruikt.
+De planner staat standaard uit. Na inschakelen draait hij in simulatiemodus.
+De bestaande tijdslotprogrammatie kan tijdens de vergelijking blijven draaien.
+
+1. Voeg in de dashboardeditor **Marstek Energy Planner** toe met dezelfde JavaScript-bron als de batterij- en tariefkaart.
+
+   ```yaml
+   type: custom:marstek-diggit-energy-planner-card
+   ```
+
+2. Kies onder **Instellingen** beide Marstek-integratie-items, het totale P1-netvermogen en het actuele Smappee-laadvermogen. Stel waar beschikbaar ook SMA-zonneproductie, zonnevoorspelling en de importenergie van het lopende meetkwartier in. Schakel de planner in en sla op.
+3. Controleer de gemeten batterijmodus, het gesimuleerde laadvoorstel, het kwartierbudget en de 24-uursplanning. De kaart leest de laatst berekende toestand via `marstek_diggit.get_energy_plan`. Beheerders kunnen instellingen ook via `marstek_diggit.configure_energy_controller` opslaan.
+
+De P1-sensor moet positief zijn bij afname, negatief bij injectie en W of kW rapporteren. Gebruik voor Smappee bij voorkeur effectief laadvermogen in W of kW. Vanaf 1.000 W geldt de auto als actief. Stop wordt bevestigd na 10 seconden op ten hoogste 700 W. Een binaire laadsensor kan de auto blokkeren, maar is onvoldoende om EV-energie van het huishoudelijke verbruik af te trekken. Voor geldige leerdagen zijn Smappee-laadvermogen en zonneproductie in W of kW nodig.
+
+Voor een open meetkwartier accepteert de planner een importenergiesensor in Wh of kWh met het attribuut `quarter_start` als ISO 8601-tijdstip met tijdzone. De sensor moet bij iedere officiële kwartiergrens opnieuw beginnen. Zonder deze sensor integreert de planner positieve P1-afname per kwartier en labelt de uitkomst als schatting. Bij onvoldoende dekking rekent de schatting voor die ontbrekende periode met de ingestelde grens. Het is geen garantie dat een gemiste piek onder die grens lag.
+
+De optionele zonnevoorspellingssensor kan een attribuut `watts_by_hour` leveren. Gebruik ISO 8601-sleutels met tijdzone en verwachte gemiddelde W per uur. Voorbeeld:
+
+```yaml
+watts_by_hour:
+  "2026-11-18T12:00:00+01:00": 620
+  "2026-11-18T13:00:00+01:00": 390
+```
+
+Bij ontbrekende voorspellingen projecteert de planner zonder toekomstige PV-bijdrage en toont hij de zonnevoorspelling als onbekend. Buiten het verwachte avondverbruik gebruikt hij de bij de strategie-evaluatie geschatte huislast. Het huidige autolaadsignaal telt mee in het eerste strategie-interval, zonder voorspelling van toekomstige laadsessies.
+
+### Beslissingen en meetgegevens
+
+- **Superdal** streeft naar 100%. De planning toont een voorspeld tekort aan het einde van het blok. **Dal** streeft eerst ook naar 100%. **Piek** kan als voorstel Auto gebruiken wanneer beide batterijen boven minimum-SoC zitten en de administratieve laadherkomst dit toestaat.
+- De planner gebruikt tariefprijzen en tijdvakken uit de bestaande tariefkaart. De kwartierbewaking verwerkt P1-updates, met een klokcontrole voor de start van een nieuw tijdvak en verouderde sensorwaarden. De strategie en de 24-uursprojectie worden standaard om de tien minuten en bij een tariefwijziging herberekend.
+- Bij autoladen of in piek is gepland laden beperkt tot gemeten zonneoverschot. De planner stelt laadvermogen pas voor wanneer beide batterijen bevestigd zijn en geen batterij meetbaar ontlaadt. Als Auto toegestaan is, blijft de realtime regeling bij Marstek en CT003. De individuele SoC-trajecten in de projectie zijn schattingen.
+- De energiebalans registreert per batterij superdal-, dal- en piekenergie, zonne-energie en onbekende energie. De berekening combineert SoC, de batterijzijdige Wh-tellers uit `ES.GetStatus`, P1 en PV. Ze rekent met 90% laad- en 90% ontlaadefficiëntie. Een positief P1-signaal zonder PV of een negatief P1-signaal met PV kan bij overeenstemmende batterijtellers laadherkomst onderbouwen. Gemengde of gemiste intervallen blijven onzeker. Onzekere energie, gewijzigde prijzen of een onderbreking kunnen ontlading blokkeren. De planner trekt bij dalende SoC proportioneel uit de administratieve bakken, omdat firmware geen laadherkomst selecteert.
+- Het leerproces gebruikt minimaal 30 geldige meetdagen en vervolgens minimaal 14 geldige schaduwdagen. De schaduwmodus toont voorspelling en gemeten avondverbruik, terwijl het laadvoorstel op 100% blijft. De instelling **Lerende doel-SoC toestaan** kan pas na beide fases een lager simulatievoorstel geven voor dal. Superdal behoudt een doel van 100%. De recentste vergelijkbare dagen wegen zwaarder. Standaard is de extra marge 15%.
+
+### Firmwarevalidatie vóór actieve sturing
+
+De [Marstek Local Open API](https://static-eu.marstekcloud.com/ems/resource/agreement/MarstekDeviceOpenApi.pdf) beschrijft Passive met een afteltijd en Auto met slimme meter. Ze beschrijft geen blijvende, fail-closed ontlaadblokkering zonder tijdsloten voor deze combinatie. De bestaande integratie herstelt bovendien de vorige modus wanneer haar Passive-opdracht verloopt. Bij een uitval van Home Assistant of het netwerk kan de planner dat herstel niet bewaken. De nieuwe planner verzendt daarom geen modus- of vermogenscommando's en weigert `simulation: false`.
+
+Marstek vermeldt [CT003-ondersteuning voor meerdere toestellen](https://marstekenergy.com/products/marstek-venus-e-gen-3). Verifieer de echte verdeling met beide Venus E 3-batterijen op firmware V151. Controleer ook het teken en de eenheid van beide tellers, Passive 0 W tijdens een afloop en herstart, Auto-herstel, het gedrag bij één onbereikbare batterij en zonne-overschot tijdens autoladen. Gebruik pas na een bevestigd veilig herstelpad actieve aansturing. Voor deze simulatierelease zijn geen wijzigingen aan de tariefkaart, de firmware of de bestaande automatisering vereist.
+
+De automatische tests gebruiken nagebootste batterijantwoorden en geen netwerk- of batterijcommando's.
+
+```sh
+python3 -m unittest discover -s tests -v
+```

@@ -139,3 +139,22 @@ get_slots:
   name: Lees opgeslagen Marstek-tijdsloten
   description: Lees de tijdsloten die via deze integratie zijn opgeslagen.
   fields: *target_field
+get_energy_plan:
+  name: Lees de Energy Planner
+  description: Lees de gesimuleerde beslissing, kwartierbewaking en 24-uursplanning.
+configure_energy_controller:
+  name: Configureer de Energy Planner
+  description: Configureer de planner vanaf de dashboardkaart of met deze actie in YAML. Actieve batterijaansturing is geblokkeerd.
+  fields:
+    enabled:
+      name: Planner inschakelen
+      selector:
+        boolean:
+    simulation:
+      name: Simulatiemodus
+      selector:
+        boolean:
+    learning_active:
+      name: Lerende doel-SoC toestaan in de simulatie
+      selector:
+        boolean:

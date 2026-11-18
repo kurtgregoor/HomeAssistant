@@ -1,5 +1,5 @@
 const DOMAIN = "marstek_diggit";
-const CARD_VERSION = "0.1.14";
+const CARD_VERSION = "0.1.15";
 const STATUS_REFRESH_MS = 30000;
 
 function formatBatteryActivity(value) {
@@ -654,5 +654,283 @@ if (!customElements.get("marstek-diggit-tariffs-card")) {
     type: "marstek-diggit-tariffs-card",
     name: "Marstek elektriciteitstarieven",
     description: "Prijzen en tijdvakken voor piek, dal en superdal",
+  });
+}
+
+const ENERGY_MODES = {
+  CHARGING: "Laden", HOLDING: "Vasthouden",
+  SELF_CONSUMPTION: "Ontladen via Auto", SAFE_FALLBACK: "Geblokkeerd",
+};
+const ENERGY_TARIFFS = { peak: "Piek", offpeak: "Dal", super_offpeak: "Superdal" };
+const PHASES = { learning: "Leerfase", shadow: "Schaduwmodus", active: "Actieve doel-SoC in simulatie" };
+const ENERGY_FIELDS = [
+  ["p1_sensor", "P1-netvermogen"], ["ev_sensor", "Smappee-laadvermogen"],
+  ["solar_sensor", "Zonneproductie"], ["forecast_sensor", "Zonnevoorspelling"],
+  ["quarter_energy_sensor", "Importenergie lopend meetkwartier"],
+  ["minimum_soc", "Minimum-SoC (%)", 0, 99], ["grid_limit", "Kwartiergrens (W)", 500, 25000],
+  ["interval_minutes", "Strategie-interval (minuten)", 10, 60],
+  ["max_charge", "Maximaal laadvermogen (W)", 100, 2500],
+  ["safety_margin", "Voorspellingsmarge (%)", 0, 100],
+  ["learning_days", "Geldige leerdagen", 30, 90], ["shadow_days", "Geldige schaduwdagen", 14, 90],
+  ["max_sensor_age", "Maximale sensorleeftijd (seconden)", 30, 600],
+];
+
+function energyValue(value, unit) {
+  return value == null ? "Onbekend" : `${Number(value).toLocaleString("nl-BE", { maximumFractionDigits: 1 })} ${unit}`;
+}
+
+class MarstekEnergyPlannerCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display:block; --rule:var(--divider-color,#d6dce2); }
+        * { box-sizing:border-box; }
+        ha-card { padding:16px; display:grid; gap:14px; overflow:hidden; }
+        h2,h3,p,dl,dd,ol { margin:0; }
+        h2 { font-size:1.36rem; }
+        h3 { font-size:1rem; margin-bottom:8px; }
+        .sub,dt { color:var(--secondary-text-color,#526267); font-size:.85em; }
+        dl,fieldset { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,155px),1fr)); gap:8px 12px; }
+        dl>div,li { padding:8px 10px; border:1px solid var(--rule); border-radius:8px; }
+        dd { margin-top:3px; overflow-wrap:anywhere; }
+        ol { list-style:none; padding:0; display:grid; gap:6px; max-height:340px; overflow:auto; }
+        li { border-inline-start:5px solid #607080; display:grid; gap:4px; }
+        li[data-mode=CHARGING] { border-inline-start-color:#23853c; }
+        li[data-mode=HOLDING] { border-inline-start-color:#b18000; }
+        li[data-mode=SELF_CONSUMPTION] { border-inline-start-color:#2b6abc; }
+        li[data-blocked=true] { border-inline-start-color:#b54040; }
+        .warn { color:var(--error-color,#af3434); }
+        summary { cursor:pointer; margin-bottom:8px; }
+        fieldset { border:0; margin:0 0 8px; padding:0; min-width:0; }
+        label { display:grid; gap:4px; min-width:0; }
+        button,input,select { color:inherit; font:inherit; }
+        input:not([type=checkbox]),select,button { border:1px solid var(--rule); border-radius:6px; padding:7px;
+          min-height:40px; background:var(--card-background-color,#fff); width:100%; }
+        button { cursor:pointer; }
+        .checks { display:flex; flex-wrap:wrap; gap:10px; margin:10px 0; }
+        .checks label { display:flex; align-items:center; }
+        [hidden] { display:none!important; }
+      </style>
+      <ha-card>
+        <header><h2>Energy Planner</h2><p id="summary" class="sub">Gegevens ophalen…</p></header>
+        <p id="error" class="warn" role="status" hidden></p>
+        <section id="diagnostics" hidden></section>
+        <section id="metrics" hidden></section>
+        <section id="timeline" hidden></section>
+        <details id="settings">
+          <summary>Instellingen</summary>
+          <form>
+            <fieldset></fieldset>
+            <div class="checks">
+              <label><input type="checkbox" name="enabled"> Planner inschakelen</label>
+              <label><input type="checkbox" name="simulation" checked disabled> Simulatiemodus</label>
+              <label><input type="checkbox" name="learning_active"> Lerende doel-SoC toestaan</label>
+            </div>
+            <button type="submit">Instellingen opslaan</button>
+          </form>
+        </details>
+      </ha-card>`;
+    this.shadowRoot.querySelector("form").addEventListener("submit", event => this.save(event));
+  }
+
+  static getStubConfig() { return { type: "custom:marstek-diggit-energy-planner-card" }; }
+
+  setConfig() {}
+  set hass(value) {
+    this._hass = value;
+    if (this.isConnected && !this.data && !this.loading) this.refresh();
+  }
+  connectedCallback() {
+    this.refresh();
+    this.timer = setInterval(() => { if (!document.hidden) this.refresh(); }, STATUS_REFRESH_MS);
+  }
+  disconnectedCallback() { clearInterval(this.timer); }
+
+  async call(service, data = {}, response = false) {
+    return this._hass.callWS({
+      type: "call_service", domain: DOMAIN, service, service_data: data, return_response: response,
+    });
+  }
+
+  showError(message) {
+    const error = this.shadowRoot.querySelector("#error");
+    error.textContent = message || "";
+    error.hidden = !message;
+  }
+
+  async refresh() {
+    if (!this._hass || this.loading) return;
+    this.loading = true;
+    try {
+      const { response } = await this.call("get_energy_plan", {}, true);
+      this.data = response;
+      this.render();
+    } catch (error) {
+      this.showError(error.message || String(error));
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  section(id, title, fields) {
+    const section = this.shadowRoot.querySelector(id);
+    section.hidden = false;
+    const heading = document.createElement("h3");
+    heading.textContent = title;
+    const list = document.createElement("dl");
+    for (const [label, value] of fields) {
+      const cell = document.createElement("div");
+      const key = document.createElement("dt");
+      const reading = document.createElement("dd");
+      key.textContent = label;
+      reading.textContent = value;
+      cell.append(key, reading);
+      list.append(cell);
+    }
+    section.replaceChildren(heading, list);
+  }
+
+  renderTimeline(rows) {
+    const section = this.shadowRoot.querySelector("#timeline");
+    const heading = document.createElement("h3");
+    heading.textContent = "Planning komende 24 uur";
+    const list = document.createElement("ol");
+    const time = new Intl.DateTimeFormat("nl-BE", {
+      timeZone: this._hass.config.time_zone, weekday: "short", hour: "2-digit", minute: "2-digit",
+    });
+    for (const row of rows) {
+      const item = document.createElement("li");
+      item.dataset.mode = row.mode;
+      item.dataset.blocked = String(row.status === "blocked");
+      const title = document.createElement("strong");
+      const details = document.createElement("span");
+      const reason = document.createElement("span");
+      details.className = reason.className = "sub";
+      title.textContent = `${time.format(new Date(row.start))} – ${time.format(new Date(row.end))} · ${ENERGY_TARIFFS[row.tariff] || "Zonder tarief"} · ${ENERGY_MODES[row.mode]}`;
+      details.textContent = `Doel ${row.target}% · Verwacht ${row.soc.map(soc => energyValue(soc, "%")).join(" / ")} · Zon ${energyValue(row.solar_w, "W")} · Verbruik ${energyValue(row.household_w, "W")}`;
+      reason.textContent = `${row.status === "blocked" ? "Geblokkeerd" : "Gepland"} · ${row.reason}`;
+      item.append(title, details, reason);
+      list.append(item);
+    }
+    section.replaceChildren(heading, list);
+  }
+
+  renderSettings() {
+    const form = this.shadowRoot.querySelector("form");
+    const { config, battery_entries: entries } = this.data;
+    const fields = form.querySelector("fieldset");
+    fields.replaceChildren();
+    for (let i = 0; i < 2; i++) {
+      const label = document.createElement("label");
+      label.textContent = `Batterij ${i + 1}`;
+      const select = document.createElement("select");
+      select.name = `battery_${i}`;
+      select.append(new Option("Kies een batterij", ""));
+      for (const entry of entries) select.append(new Option(entry.title, entry.id));
+      select.value = config.battery_ids?.[i] || "";
+      label.append(select);
+      fields.append(label);
+    }
+    for (const [name, title, min, max] of ENERGY_FIELDS) {
+      const label = document.createElement("label");
+      label.textContent = title;
+      const input = document.createElement("input");
+      input.name = name;
+      input.value = config[name] ?? "";
+      if (min !== undefined) {
+        input.type = "number";
+        input.min = min;
+        input.max = max;
+        input.required = true;
+      } else {
+        input.placeholder = "sensor.naam";
+      }
+      label.append(input);
+      fields.append(label);
+    }
+    form.elements.enabled.checked = config.enabled;
+    form.elements.learning_active.checked = config.learning_active;
+  }
+
+  render() {
+    const { config, decision, quarter, learning, batteries, plan, error } = this.data;
+    this.showError(error || (this.data.quarter_warning ? "Netafname al minstens 10 minuten boven de grens." : ""));
+    this.shadowRoot.querySelector("#summary").textContent = config.enabled
+      ? "Simulatie · leest metingen en berekent voorstellen"
+      : "Planner uitgeschakeld";
+    for (const id of ["#diagnostics", "#metrics", "#timeline"]) this.shadowRoot.querySelector(id).hidden = !decision;
+    if (!this.settingsLoaded) {
+      this.renderSettings();
+      this.settingsLoaded = true;
+    }
+    if (!decision || !quarter || !learning) return;
+    this.section("#diagnostics", "Huidige beslissing", [
+      ["Voorstel", ENERGY_MODES[decision.mode]], ["Reden", decision.reason],
+      ["Blokkeringen", decision.blocks.join(", ") || "Geen in de simulatie"],
+      ["Uitvoering", this.data.blocked_execution],
+      ["Laatste opdracht", this.data.last_successful_command || "Geen · simulatie"],
+      ["Volgende actie", this.data.next_action ? `${ENERGY_MODES[this.data.next_action.mode]} · ${this.data.next_action.reason}` : "Geen wijziging gepland"],
+      ["Superdal", this.data.superdal_shortfall ? `100% mogelijk niet haalbaar · ${this.data.superdal_shortfall.join("% / ")}%` : "Geen voorspeld tekort"],
+    ]);
+    const last = learning.errors.at(-1);
+    this.section("#metrics", "Batterijen, kwartierpiek en leerproces", [
+      ...batteries.map((battery, i) => [`Batterij ${i + 1}`, battery
+        ? `${energyValue(battery.soc, "%")} · ${battery.mode} · ${formatBatteryActivity(battery.watts)}` : "Geen bevestigde status"]),
+      ["Gezamenlijk boven minimum", energyValue(this.data.available_wh, "Wh")],
+      ["Netafname", energyValue(quarter.grid_w, "W")], ["Kwartier tot nu toe", energyValue(quarter.average_w, "W")],
+      ["Voorspelde kwartierpiek", energyValue(quarter.forecast_w, "W")],
+      ["Kwartiergrens", energyValue(quarter.limit_w, "W")],
+      ["Boven de grens", energyValue(quarter.above_seconds, "s")],
+      ["Toelaatbaar resterend gemiddelde", energyValue(quarter.allowed_w, "W")],
+      ["Kwartierenergie", `${energyValue(quarter.energy_wh, "Wh")} · ${quarter.source === "meter" ? "Meter" : "Schatting"}`],
+      ["Laadvoorstel", energyValue(-decision.watts.reduce((total, watts) => total + (watts || 0), 0), "W")],
+      ["Laadbeperking", this.data.quarter_charge_limited ? "Kwartierbudget beperkt netladen" : "Geen kwartierbeperking"],
+      ["Piekwaarschuwing", this.data.unavoidable_peak ? "Verbruik zonder batterijactie ligt al boven de resterende marge" : "Binnen resterende marge"],
+      ["Fase", PHASES[learning.phase]], ["Geldige dagen", `${learning.valid_days} · ${learning.shadow_days} schaduw`],
+      ["Verwacht avondverbruik", energyValue(learning.forecast_wh, "Wh")],
+      ["Doel-SoC · rekenwaarde / toegepast", `${decision.target}% toegepast · ${learning.target}% berekend voor dal`],
+      ["Voorspellingsbasis", learning.confidence === "historical" ? "Geldige leer- en schaduwdagen" : "Nog onvoldoende meetdagen"],
+      ["Laatste voorspelling / gemeten", last ? `${energyValue(last.predicted_wh, "Wh")} / ${energyValue(last.actual_wh, "Wh")}` : "Nog geen geldige schaduwdag"],
+      ["Historische fouten", learning.errors.length
+        ? learning.errors.map(day => `${day.date} ${energyValue(day.error_wh, "Wh")}`).join(" · ") : "Geen voorspellingen om te vergelijken"],
+    ]);
+    this.renderTimeline(plan);
+  }
+
+  async save(event) {
+    event.preventDefault();
+    const submit = event.target.querySelector("button");
+    const params = new FormData(event.target);
+    const data = { enabled: params.has("enabled"), learning_active: params.has("learning_active"), simulation: true };
+    const batteries = [params.get("battery_0"), params.get("battery_1")];
+    if (batteries.every(Boolean)) data.battery_ids = batteries;
+    if (data.enabled && (!batteries.every(Boolean) || batteries[0] === batteries[1])) {
+      this.showError("Kies twee verschillende batterijen.");
+      return;
+    }
+    for (const [key, , min] of ENERGY_FIELDS) {
+      data[key] = min === undefined ? params.get(key).trim() : Number(params.get(key));
+    }
+    submit.disabled = true;
+    try {
+      await this.call("configure_energy_controller", data);
+      this.settingsLoaded = false;
+      await this.refresh();
+    } catch (error) {
+      this.showError(error.message || String(error));
+    } finally {
+      submit.disabled = false;
+    }
+  }
+}
+
+if (!customElements.get("marstek-diggit-energy-planner-card")) {
+  customElements.define("marstek-diggit-energy-planner-card", MarstekEnergyPlannerCard);
+  window.customCards = window.customCards || [];
+  window.customCards.push({
+    type: "marstek-diggit-energy-planner-card", name: "Marstek Energy Planner",
+    description: "Simuleer de tariefregeling voor twee Marstek-batterijen.",
   });
 }

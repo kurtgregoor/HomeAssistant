@@ -84,6 +84,18 @@ class MarstekClient:
                 await asyncio.sleep(0.8)
                 return await self._get_status()
 
+    async def get_energy_counters(self):
+        """Read documented battery-side Wh counters without changing mode."""
+        async with self.lock:
+            result = await self._request("ES.GetStatus")
+        if not isinstance(result, dict):
+            raise MarstekError("De batterij heeft geen energietellers teruggegeven")
+        return {
+            key: result[key]
+            for key in ("total_grid_input_energy", "total_grid_output_energy")
+            if key in result
+        }
+
     async def get_device_info(self):
         async with self.lock:
             result = await self._request("Marstek.GetDevice", ble_mac="0")
