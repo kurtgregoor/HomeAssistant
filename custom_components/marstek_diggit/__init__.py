@@ -16,6 +16,7 @@ from homeassistant.helpers.storage import Store
 from .client import DAY_BITS, MODE_CONFIG, MarstekClient, MarstekError
 
 from .passive import PassiveControl, passive_store
+from .controller import register_energy_actions
 from .tariffs import register_tariff_actions
 
 DOMAIN = "marstek_diggit"
@@ -80,7 +81,9 @@ def _slot_payload(data):
 
 
 async def async_setup(hass, config):
-    register_tariff_actions(hass, DOMAIN)
+    hass.data.setdefault(DOMAIN, {})
+    load_tariffs = register_tariff_actions(hass, DOMAIN)
+    energy_controller = await register_energy_actions(hass, DOMAIN, load_tariffs)
     slot_store = Store(hass, 1, f"{DOMAIN}.slots")
     slot_lock = Lock()
     card_file = str(Path(__file__).with_name("marstek-diggit-card.js"))
@@ -95,6 +98,9 @@ async def async_setup(hass, config):
         StaticPathConfig("/marstek_diggit/dashboard-0.1.12.js", card_file, False),
         StaticPathConfig("/marstek_diggit/dashboard-0.1.13.js", card_file, False),
         StaticPathConfig("/marstek_diggit/dashboard-0.1.14.js", card_file, False),
+        StaticPathConfig("/marstek_diggit/dashboard-0.1.15.js", card_file, False),
+        StaticPathConfig("/marstek_diggit/dashboard-0.1.16.js", card_file, False),
+        StaticPathConfig("/marstek_diggit/dashboard-0.1.17.js", card_file, False),
     ])
 
     async def handle(call):
@@ -106,6 +112,8 @@ async def async_setup(hass, config):
         if entry_id not in batteries:
             raise HomeAssistantError("Selecteer een geconfigureerde Marstek-batterij.")
 
+        if call.service not in {"get_status", "get_device_info", "get_slots"} and energy_controller.owns(entry_id):
+            raise HomeAssistantError("Schakel eerst de actieve Energy Planner uit voor deze batterij.")
         battery = batteries[entry_id]
         try:
             if call.service == "get_slots":
@@ -137,7 +145,6 @@ async def async_setup(hass, config):
         except MarstekError as exc:
             raise HomeAssistantError(str(exc)) from exc
 
-    hass.data.setdefault(DOMAIN, {})
     for action, schema in SCHEMAS.items():
         hass.services.async_register(
             DOMAIN, action, handle, schema=schema,

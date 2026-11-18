@@ -92,7 +92,7 @@ def normalize_schedule(schedule):
 def register_tariff_actions(hass, domain):
     storage = Store(hass, 1, f"{domain}.tariffs")
 
-    async def get_tariffs(call):
+    async def get_tariffs(call=None):
         return await storage.async_load() or {
             "prices": {kind: "" for kind in TARIFFS},
             "schedule": {profile: {kind: [] for kind in TARIFFS} for profile in PROFILES},
@@ -106,3 +106,4 @@ def register_tariff_actions(hass, domain):
 
     hass.services.async_register(domain, "get_tariffs", get_tariffs, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(domain, "set_tariffs", set_tariffs, schema=SCHEMA)
+    return get_tariffs

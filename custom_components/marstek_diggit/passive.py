@@ -1,8 +1,9 @@
 """Persist and restore a temporary Passive command for one config entry."""
 
-from asyncio import Lock
+from asyncio import Lock, sleep
 from datetime import datetime, timedelta, timezone
 import logging
+from math import isfinite
 
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.storage import Store
@@ -108,6 +109,59 @@ class PassiveControl:
             confirmed = {**pending, "ends_at": deadline.isoformat()}
             await self._store.async_save(confirmed)
             self._set_pending(confirmed)
+
+    async def set_energy_power(self, power):
+        """Take a bounded charge lease or hold without scheduling legacy Auto restore."""
+        if not -2500 <= power <= 0:
+            raise MarstekError("Energy Planner accepteert alleen laden of 0 W.")
+        async with self._lock:
+            self._ensure_loaded()
+            if self._pending:
+                raise MarstekError("Wacht tot de bestaande Passive-opdracht is afgelopen.")
+            status = await self.client.get_status()
+            mode = status["mode"]
+            if mode not in ("Auto", "Passive"):
+                raise MarstekError(f"Energy Planner kan modus {mode} niet overnemen.")
+            sent_at = await self.client.set_passive(power, 60, mode)
+            # V151 acknowledges a setpoint before the inverter ramps.
+            for delay in (3.5, 2):
+                await sleep(delay)
+                try:
+                    observed = await self.client.get_status()
+                except MarstekError:
+                    continue
+                watts = observed.get("ongrid_power")
+                if (observed["mode"] == "Passive" and isinstance(watts, (int, float))
+                        and isfinite(watts) and (
+                            abs(watts) <= 20 if power == 0 else power - 100 <= watts <= -20
+                        )):
+                    return sent_at
+            raise MarstekError("Passive-opdracht niet bevestigd door modus en vermogen.")
+
+    async def set_energy_auto(self, still_allowed):
+        async with self._lock:
+            self._ensure_loaded()
+            if self._pending:
+                raise MarstekError("Wacht tot de bestaande Passive-opdracht is afgelopen.")
+            status = await self.client.get_status()
+            if not still_allowed():
+                return False
+            if status["mode"] == "Auto":
+                return True
+            watts = status.get("ongrid_power")
+            if status["mode"] != "Passive" or not isinstance(watts, (int, float)) or abs(watts) > 20:
+                raise MarstekError("Bevestig eerst Passive 0 W vóór Auto.")
+            await self.client.set_mode("Auto")
+            for delay in (1.2, 2):
+                await sleep(delay)
+                if not still_allowed():
+                    return False
+                try:
+                    if (await self.client.get_status())["mode"] == "Auto":
+                        return True
+                except MarstekError:
+                    continue
+            raise MarstekError("Auto niet bevestigd door de batterij.")
 
     async def set_mode(self, mode):
         async with self._lock:
