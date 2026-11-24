@@ -357,7 +357,7 @@ class EnergyController:
         # The other battery was confirmed idle before reaching this guard.
         base = max(grid + status.watts, original_grid + sum(b.watts for b in batteries))
         budget = limit - base - 200
-        if ev or tariff == "peak" or tariff_at(now + timedelta(seconds=65), self.last_live_schedule) != tariff:
+        if ev or tariff != "super_offpeak" or tariff_at(now + timedelta(seconds=65), self.last_live_schedule) != tariff:
             budget = min(budget, -base - 100)
         available = max(0, int(budget // 50) * 50)
         return -min(-power, available) if available >= 100 else 0

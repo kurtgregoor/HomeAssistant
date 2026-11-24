@@ -157,7 +157,7 @@ def decide(tariff, prices, batteries, ledgers, grid, ev, margin, target, minimum
     base = grid + output
     headroom = max(0, (margin or 0) - base - 200)
     solar_budget = max(0, -base - 100)
-    net_allowed = tariff in CHEAP and not ev
+    net_allowed = tariff == "super_offpeak" and not ev
     budget = headroom if net_allowed else min(solar_budget, headroom)
     candidates = [i for i, battery in enumerate(batteries) if battery.soc < target]
     if not candidates and target < 100 and solar_budget >= 100:
@@ -189,7 +189,9 @@ def decide(tariff, prices, batteries, ledgers, grid, ev, margin, target, minimum
                         tuple(blocks))
     if tariff == "peak" and not blocks:
         return Decision("SELF_CONSUMPTION", target, (None, None), "Auto via CT003")
-    reason = "Laadbudget te klein" if candidates and net_allowed else "Energie vasthouden"
+    reason = "Energie vasthouden"
+    if candidates:
+        reason = "Laadbudget te klein" if net_allowed else "Onvoldoende gemeten zonneoverschot"
     return Decision("HOLDING", target, (0, 0), reason, tuple(blocks))
 
 
